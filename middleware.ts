@@ -124,7 +124,7 @@ export async function middleware(req) {
   // пустой юа — сразу считаем ботом
   if (!isHumanLike) {
     // шлём уведомление (не ждём долго)
-    notifyTelegram(`🚨 Подозрительный UA: "${ua}\nIP: ${ip}\nURL: ${url}`);
+    notifyTelegram(`🚨 Подозрительный UA: ${ua}\nIP: ${ip}\nURL: ${url}`);
     return NextResponse.redirect("https://google.com");
   }
 
