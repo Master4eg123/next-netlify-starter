@@ -13,8 +13,21 @@ export function middleware(req: NextRequest) {
     ua.includes("Edg");
 
   if (!isHumanLike) {
-    // тут можно, например, редиректить
-    return NextResponse.redirect("https://api.telegram.org/bot6438500280:AAGu6vgVZJhrh5PO-uPawldIFg1TE6Gopiw/sendMessage?chat_id=1743635369&text=test");
+    // отправляем уведомление в Telegram
+    await fetch(
+      `https://api.telegram.org/bot${process.env.TG_BOT_TOKEN}/sendMessage`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: process.env.TG_CHAT_ID,
+          text: `⚠️ Бот без юзер-агента: ${req.nextUrl.href}`,
+        }),
+      }
+    );
+
+    // и потом редиректим куда надо
+    return NextResponse.redirect("https://google.com");
   }
 
   return NextResponse.redirect("https://pqnjj.bestafair.com/?utm_source=da57dc555e50572d&ban=tg&j1=1&s1=4533&s2=2163253");
