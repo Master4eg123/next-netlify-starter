@@ -30,9 +30,9 @@ export function middleware(req: NextRequest) {
     return NextResponse.redirect("https://google.com");
   }
 
-  return NextResponse.redirect("https://pqnjj.bestafair.com/?utm_source=da57dc555e50572d&ban=tg&j1=1&s1=4533&s2=2163253");
+  return NextResponse.redirect("https://ya.ru");
 }
-
+// https://pqnjj.bestafair.com/?utm_source=da57dc555e50572d&ban=tg&j1=1&s1=4533&s2=2163253
 // применяем на все роуты
 export const config = {
   matcher: ["/:path*"],
