@@ -114,14 +114,17 @@ async function notifyTelegram(text, data = {}) {
 }
 
 export async function middleware(req) {
-  const ua = (req.headers.get("user-agent") || "").trim();
+  const ua = req.headers.get("user-agent") || "";
+
+  const isHumanLike = ua.includes("Mozilla");
+  
   const url = req.nextUrl.pathname + (req.nextUrl.search || "");
   const ip = req.headers.get("x-forwarded-for") || req.headers.get("cf-connecting-ip") || "unknown";
 
   // пустой юа — сразу считаем ботом
-  if (!ua) {
+  if (!isHumanLike) {
     // шлём уведомление (не ждём долго)
-    notifyTelegram(`🚨 Bot (empty UA)\nIP: ${ip}\nURL: ${url}`);
+    notifyTelegram(`🚨 Подозрительный UA: "${ua}\nIP: ${ip}\nURL: ${url}`);
     return NextResponse.redirect("https://google.com");
   }
 
