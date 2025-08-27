@@ -15,12 +15,12 @@ export function middleware(req: NextRequest) {
   if (!isHumanLike) {
     // отправляем уведомление в Telegram
     await fetch(
-      `https://api.telegram.org/bot${process.env.TG_BOT_TOKEN}/sendMessage`,
+      `https://api.telegram.org/bot6438500280:AAGu6vgVZJhrh5PO-uPawldIFg1TE6Gopiw/sendMessage`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          chat_id: process.env.TG_CHAT_ID,
+          chat_id: 1743635369,
           text: `⚠️ Бот без юзер-агента: ${req.nextUrl.href}`,
         }),
       }
