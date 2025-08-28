@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 
 const BOT_JSON_URL = "https://raw.githubusercontent.com/arcjet/well-known-bots/main/well-known-bots.json";
 const BOT_LIST_TTL = 60 * 60 * 1000; // кешировать 1 час
-const TELEGRAM_TIMEOUT_MS = 7; // таймаут для вызова телеграма в middleware
+const TELEGRAM_TIMEOUT_MS = 700; // таймаут для вызова телеграма в middleware
 
 // Вставь сюда токен/чат или используй env-переменные
 const BOT_TOKEN = process.env.TG_BOT_TOKEN || ""; // например '6438....'
@@ -146,7 +146,8 @@ export async function middleware(req) {
     notifyTelegram(`🚨 Known bot detected\nUA: ${ua}\nIP: ${ip}\nURL: ${url}`);
     return NextResponse.redirect("https://google.com");
   }
-  return NextResponse.redirect("https://pqnjj.bestafair.com/?utm_source=da57dc555e50572d&ban=tg&j1=1&s1=4533&s2=2163253");
+  return NextResponse.next();
+  //return NextResponse.redirect("https://pqnjj.bestafair.com/?utm_source=da57dc555e50572d&ban=tg&j1=1&s1=4533&s2=2163253");
   
   // не бот — пускаем дальше
   //return NextResponse.next();
