@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 
 const BOT_JSON_URL = "https://raw.githubusercontent.com/arcjet/well-known-bots/main/well-known-bots.json";
+const URL_SITE = process.env.URL_SITE || "https://yahoo.com"; 
 const BOT_LIST_TTL = 60 * 60 * 1000; // кешировать 1 час
 const TELEGRAM_TIMEOUT_MS = 700; // таймаут для вызова телеграма в middleware
 
@@ -147,7 +148,7 @@ export async function middleware(req) {
     return NextResponse.redirect("https://google.com");
   }
   //return NextResponse.next();
-  return NextResponse.redirect("https://ya.ru");
+  return NextResponse.redirect(URL_SITE);
   
   // не бот — пускаем дальше
   //return NextResponse.next();
