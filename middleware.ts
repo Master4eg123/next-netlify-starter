@@ -136,7 +136,7 @@ async function notifyTelegram(text, req, data = {}) {
   } catch (err) {
     console.warn(" failed:", err);
   }
-  domain = 'test';
+
     
   const token = BOT_TOKEN || process.env.TG_BOT_TOKEN;
   const chat = CHAT_ID || process.env.TG_CHAT_ID;
@@ -146,7 +146,7 @@ async function notifyTelegram(text, req, data = {}) {
   }
 
   // пробуем вытащить домен
-  const finalText = `🌐 ${domain}\n${text}`;
+  const finalText = `🌐 ${envUrl}\n${text}`;
 
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), TELEGRAM_TIMEOUT_MS);
