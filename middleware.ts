@@ -89,49 +89,50 @@ async function loadBotRegexes() {
 }
 
 function getDomain(req) {
-  if (!req) return "unknown-domain";
-
   try {
     const getHeader = (name) => {
-      // разные runtime дают разные header-APIs: Headers или plain object
       if (typeof req.headers?.get === "function") return req.headers.get(name);
       if (req.headers && typeof req.headers === "object") return req.headers[name];
       return undefined;
     };
 
-    // check common headers (order matters)
-    const candidates = [
-      "x-forwarded-host",
-      "x-netlify-host",     // возможный кастомный заголовок
-      "x-original-host",
-      "host",
-    ];
+    // 1. Основной способ — host
+    const hostHeader = getHeader("x-forwarded-host") || getHeader("host");
+    if (hostHeader) return hostHeader;
 
-    for (const h of candidates) {
-      const v = getHeader(h);
-      if (v) return v;
-    }
-
-    // referer часто содержит оригинальный дом
+    // 2. Пробуем referer
     const referer = getHeader("referer") || getHeader("referrer");
     if (referer) {
-      try { return new URL(referer).host; } catch (e) { /* ignore */ }
+      try {
+        return new URL(referer).host;
+      } catch (e) {
+        console.warn("Bad referer URL:", referer);
+      }
     }
 
-    // безопасно попробовать req.url (если существует и валиден)
-    if (typeof req.url === "string" && req.url) {
-      try { return new URL(req.url).host; } catch (e) { /* ignore */ }
+    // 3. Падение на env
+    const envUrl = process.env.URL || process.env.DEPLOY_URL;
+    if (envUrl) {
+      try {
+        return new URL(envUrl).host;
+      } catch (e) {
+        return envUrl;
+      }
     }
+
   } catch (err) {
-    console.warn("getDomainFromRequest failed:", err);
+    console.warn("getDomain failed:", err);
   }
 
+  // 4. Если ничего не нашли
   return "unknown-domain";
 }
 
 async function notifyTelegram(text, req, data = {}) {
   let envUrl = "unknown-domain";
-  const mainDomain = process.env.DEPLOY_URL || "unknown-domain";
+
+  const mainDomain = getDomain(req);
+  console.log("Detected domain:", mainDomain);
   try {
     envUrl = process.env.URL || process.env.DEPLOY_URL || "unknown-domain";
     console.log("env URL:", envUrl);
