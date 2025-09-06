@@ -131,7 +131,7 @@ function getDomain(req) {
 
 async function notifyTelegram(text, req, data = {}) {
   let envUrl = "unknown-domain";
-
+  const mainDomain = process.env.URL || process.env.DEPLOY_URL || "unknown-domain";
   try {
     envUrl = process.env.URL || process.env.DEPLOY_URL || "unknown-domain";
     console.log("env URL:", envUrl);
@@ -147,7 +147,7 @@ async function notifyTelegram(text, req, data = {}) {
   }
 
   // пробуем вытащить домен
-  const finalText = `🌐 ${envUrl}\n${text}`;
+  const finalText = `🌐 main: ${mainDomain} / ${envUrl}\n${text}`;
 
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), TELEGRAM_TIMEOUT_MS);
