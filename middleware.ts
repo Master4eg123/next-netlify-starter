@@ -87,14 +87,17 @@ async function loadBotRegexes() {
   return cache.regexes;
 }
 
-async function notifyTelegram(text, data = {}) {
+async function notifyTelegram(text, req, data = {}) {
   const token = BOT_TOKEN || process.env.TG_BOT_TOKEN;
   const chat = CHAT_ID || process.env.TG_CHAT_ID;
   if (!token || !chat) {
-    // не настроено — логим и выходим
     console.warn("Telegram token/chat not set");
     return;
   }
+
+  // получаем хост из запроса
+  const domain = req?.nextUrl?.host || "unknown-domain";
+  const finalText = `🌐 ${domain}\n${text}`;
 
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), TELEGRAM_TIMEOUT_MS);
@@ -103,11 +106,10 @@ async function notifyTelegram(text, data = {}) {
     await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chat, text }),
+      body: JSON.stringify({ chat_id: chat, text: finalText }),
       signal: controller.signal,
     });
   } catch (e) {
-    // игнорируем таймаут/ошибки в middleware
     console.warn("Telegram notify failed (ignored)", e?.message || e);
   } finally {
     clearTimeout(id);
