@@ -95,26 +95,40 @@ async function notifyTelegram(text, req, data = {}) {
     return;
   }
   
-  // ОТЛАДКА: выводим все заголовки
+  // ОТЛАДКА: выводим все заголовки и req
   console.log("=== ОТЛАДКА ЗАГОЛОВКОВ ===");
-  console.log("req.nextUrl.host:", req.nextUrl?.host);
-  console.log("req.nextUrl.hostname:", req.nextUrl?.hostname);
-  console.log("All headers:");
-  for (const [key, value] of req.headers.entries()) {
-    console.log(`  ${key}: ${value}`);
-  }
-  console.log("=========================");
+  console.log("req.url:", req.url);
+  console.log("typeof req:", typeof req);
+  console.log("req keys:", Object.keys(req));
   
-  // Пробуем разные варианты
-  let domain = req.nextUrl?.host || 
-               req.nextUrl?.hostname ||
-               req.headers.get("x-forwarded-host") || 
-               req.headers.get("host") || 
-               req.headers.get("x-forwarded-server") ||
-               req.headers.get("x-original-host") ||
-               "unknown-domain";
-
+  // Для Netlify Edge Functions используем req.url
+  let domain = "unknown-domain";
+  
+  try {
+    if (req.url) {
+      const url = new URL(req.url);
+      domain = url.host;
+      console.log("Domain from URL:", domain);
+    }
+  } catch (e) {
+    console.log("Error parsing URL:", e);
+  }
+  
+  // Если не получилось из URL, пробуем заголовки
+  if (domain === "unknown-domain") {
+    console.log("All headers:");
+    for (const [key, value] of req.headers.entries()) {
+      console.log(`  ${key}: ${value}`);
+    }
+    
+    domain = req.headers.get("x-forwarded-host") || 
+             req.headers.get("host") || 
+             req.headers.get("x-forwarded-server") ||
+             "unknown-domain";
+  }
+  
   console.log("Final domain:", domain);
+  console.log("=========================");
 
   const finalText = `🌐 ${domain}\n${text}`;
   const controller = new AbortController();
@@ -133,7 +147,6 @@ async function notifyTelegram(text, req, data = {}) {
     clearTimeout(id);
   }
 }
-
 export async function middleware(req) {
   const ua = req.headers.get("user-agent") || "";
 
