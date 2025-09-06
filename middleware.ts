@@ -95,22 +95,43 @@ async function notifyTelegram(text, req, data = {}) {
     return;
   }
   
-  // Для Netlify Functions заголовки - это обычный объект
+  // В Next.js middleware req.headers это Headers API объект
   let domain = "unknown-domain";
   
-  if (req?.headers) {
-    // Netlify Functions, Express, большинство Node.js окружений
+  if (req?.headers?.get) {
+    // Next.js middleware - используем Headers API
+    domain = req.headers.get("x-forwarded-host") || 
+             req.headers.get("host") || 
+             "unknown-domain";
+  } else if (req?.headers && typeof req.headers === 'object') {
+    // Обычный объект (для других окружений)
     domain = req.headers["x-forwarded-host"] || 
              req.headers["host"] || 
              req.headers["X-Forwarded-Host"] || 
              req.headers["Host"] || 
              "unknown-domain";
-  } else if (req?.headers?.get) {
-    // Fetch API Request объект (например, в Edge Functions)
-    domain = req.headers.get("x-forwarded-host") || 
-             req.headers.get("host") || 
-             "unknown-domain";
   }
+
+  // Для отладки - добавьте эту строку
+  console.log("Domain detected:", domain);
+
+  const finalText = `🌐 ${domain}\n${text}`;
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), TELEGRAM_TIMEOUT_MS);
+  
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chat, text: finalText }),
+      signal: controller.signal,
+    });
+  } catch (e) {
+    console.warn("Telegram notify failed (ignored)", e?.message || e);
+  } finally {
+    clearTimeout(id);
+  }
+}
 
   const finalText = `🌐 ${domain}\n${text}`;
   const controller = new AbortController();
