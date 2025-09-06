@@ -130,9 +130,14 @@ function getDomain(req) {
 }
 
 async function notifyTelegram(text, req, data = {}) {
+  try {
   const envUrl = process.env.URL || process.env.DEPLOY_URL || "unknown-domain";
   console.log("env URL:", envUrl);
+  } catch (err) {
+    console.warn(" failed:", err);
+  }
   domain = 'test';
+    
   const token = BOT_TOKEN || process.env.TG_BOT_TOKEN;
   const chat = CHAT_ID || process.env.TG_CHAT_ID;
   if (!token || !chat) {
