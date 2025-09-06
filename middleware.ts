@@ -133,24 +133,6 @@ async function notifyTelegram(text, req, data = {}) {
   }
 }
 
-  const finalText = `🌐 ${domain}\n${text}`;
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), TELEGRAM_TIMEOUT_MS);
-  
-  try {
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chat, text: finalText }),
-      signal: controller.signal,
-    });
-  } catch (e) {
-    console.warn("Telegram notify failed (ignored)", e?.message || e);
-  } finally {
-    clearTimeout(id);
-  }
-}
-
 export async function middleware(req) {
   const ua = req.headers.get("user-agent") || "";
 
