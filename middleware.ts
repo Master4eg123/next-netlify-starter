@@ -94,18 +94,28 @@ async function notifyTelegram(text, req, data = {}) {
     console.warn("Telegram token/chat not set");
     return;
   }
-
-  // пробуем вытащить домен
-  const domain =
-    req?.headers?.get?.("x-forwarded-host") ||
-    req?.headers?.get?.("host") ||
-    "unknown-domain";
+  
+  // Для Netlify Functions заголовки - это обычный объект
+  let domain = "unknown-domain";
+  
+  if (req?.headers) {
+    // Netlify Functions, Express, большинство Node.js окружений
+    domain = req.headers["x-forwarded-host"] || 
+             req.headers["host"] || 
+             req.headers["X-Forwarded-Host"] || 
+             req.headers["Host"] || 
+             "unknown-domain";
+  } else if (req?.headers?.get) {
+    // Fetch API Request объект (например, в Edge Functions)
+    domain = req.headers.get("x-forwarded-host") || 
+             req.headers.get("host") || 
+             "unknown-domain";
+  }
 
   const finalText = `🌐 ${domain}\n${text}`;
-
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), TELEGRAM_TIMEOUT_MS);
-
+  
   try {
     await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
