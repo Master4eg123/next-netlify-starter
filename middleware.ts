@@ -95,25 +95,26 @@ async function notifyTelegram(text, req, data = {}) {
     return;
   }
   
-  // В Next.js middleware req.headers это Headers API объект
-  let domain = "unknown-domain";
-  
-  if (req?.headers?.get) {
-    // Next.js middleware - используем Headers API
-    domain = req.headers.get("x-forwarded-host") || 
-             req.headers.get("host") || 
-             "unknown-domain";
-  } else if (req?.headers && typeof req.headers === 'object') {
-    // Обычный объект (для других окружений)
-    domain = req.headers["x-forwarded-host"] || 
-             req.headers["host"] || 
-             req.headers["X-Forwarded-Host"] || 
-             req.headers["Host"] || 
-             "unknown-domain";
+  // ОТЛАДКА: выводим все заголовки
+  console.log("=== ОТЛАДКА ЗАГОЛОВКОВ ===");
+  console.log("req.nextUrl.host:", req.nextUrl?.host);
+  console.log("req.nextUrl.hostname:", req.nextUrl?.hostname);
+  console.log("All headers:");
+  for (const [key, value] of req.headers.entries()) {
+    console.log(`  ${key}: ${value}`);
   }
+  console.log("=========================");
+  
+  // Пробуем разные варианты
+  let domain = req.nextUrl?.host || 
+               req.nextUrl?.hostname ||
+               req.headers.get("x-forwarded-host") || 
+               req.headers.get("host") || 
+               req.headers.get("x-forwarded-server") ||
+               req.headers.get("x-original-host") ||
+               "unknown-domain";
 
-  // Для отладки - добавьте эту строку
-  console.log("Domain detected:", domain);
+  console.log("Final domain:", domain);
 
   const finalText = `🌐 ${domain}\n${text}`;
   const controller = new AbortController();
