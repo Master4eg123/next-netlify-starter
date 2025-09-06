@@ -130,14 +130,15 @@ function getDomain(req) {
 }
 
 async function notifyTelegram(text, req, data = {}) {
+  let envUrl = "unknown-domain";
+
   try {
-  const envUrl = process.env.URL || process.env.DEPLOY_URL || "unknown-domain";
-  console.log("env URL:", envUrl);
+    envUrl = process.env.URL || process.env.DEPLOY_URL || "unknown-domain";
+    console.log("env URL:", envUrl);
   } catch (err) {
-    console.warn(" failed:", err);
+    console.warn("failed to read env vars:", err);
   }
 
-    
   const token = BOT_TOKEN || process.env.TG_BOT_TOKEN;
   const chat = CHAT_ID || process.env.TG_CHAT_ID;
   if (!token || !chat) {
@@ -164,6 +165,7 @@ async function notifyTelegram(text, req, data = {}) {
     clearTimeout(id);
   }
 }
+
 
 
 export async function middleware(req) {
