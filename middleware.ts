@@ -131,7 +131,7 @@ function getDomain(req) {
 
 async function notifyTelegram(text, req, data = {}) {
   let envUrl = "unknown-domain";
-  const mainDomain = process.env.URL || process.env.DEPLOY_URL || "unknown-domain";
+  const mainDomain = process.env.DEPLOY_URL || "unknown-domain";
   try {
     envUrl = process.env.URL || process.env.DEPLOY_URL || "unknown-domain";
     console.log("env URL:", envUrl);
