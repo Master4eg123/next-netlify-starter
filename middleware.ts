@@ -174,7 +174,7 @@ export async function middleware(req) {
   const isHumanLike = ua.includes("Mozilla");
   const url = req.nextUrl.pathname + (req.nextUrl.search || "");
   const ip = req.headers.get("x-forwarded-for") || req.headers.get("cf-connecting-ip") || "unknown";
-
+  let envUrl = process.env.URL || process.env.DEPLOY_URL || "unknown-domain";
   // --- достаем домен из ENV ---
   const mainDomain = getDomain(req);
   try {
