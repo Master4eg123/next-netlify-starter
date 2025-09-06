@@ -129,7 +129,7 @@ function getDomain(req) {
 }
 
 async function notifyTelegram(text, req, data = {}) {
-  const domain = getDomainFromRequest(req);
+  const domain = getDomain(req);
   console.log("[middleware] domain:", domain);
 
   const token = BOT_TOKEN || process.env.TG_BOT_TOKEN;
