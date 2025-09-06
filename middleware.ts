@@ -95,8 +95,12 @@ async function notifyTelegram(text, req, data = {}) {
     return;
   }
 
-  // получаем хост из запроса
-  const domain = req?.nextUrl?.host || "unknown-domain";
+  // пробуем вытащить домен
+  const domain =
+    req?.headers?.get?.("x-forwarded-host") ||
+    req?.headers?.get?.("host") ||
+    "unknown-domain";
+
   const finalText = `🌐 ${domain}\n${text}`;
 
   const controller = new AbortController();
