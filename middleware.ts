@@ -88,26 +88,49 @@ async function loadBotRegexes() {
 }
 
 function getDomain(req) {
-  try {
-    const forwarded = req?.headers?.get?.("x-forwarded-host");
-    const host = req?.headers?.get?.("host");
-    if (forwarded) return forwarded;
-    if (host) return host;
+  if (!req) return "unknown-domain";
 
-    // fallback: пробуем распарсить сам url
-    if (req?.url) {
-      const u = new URL(req.url);
-      return u.host;
+  try {
+    const getHeader = (name) => {
+      // разные runtime дают разные header-APIs: Headers или plain object
+      if (typeof req.headers?.get === "function") return req.headers.get(name);
+      if (req.headers && typeof req.headers === "object") return req.headers[name];
+      return undefined;
+    };
+
+    // check common headers (order matters)
+    const candidates = [
+      "x-forwarded-host",
+      "x-netlify-host",     // возможный кастомный заголовок
+      "x-original-host",
+      "host",
+    ];
+
+    for (const h of candidates) {
+      const v = getHeader(h);
+      if (v) return v;
     }
-  } catch (e) {
-    console.warn("Ошибка получения домена:", e);
+
+    // referer часто содержит оригинальный дом
+    const referer = getHeader("referer") || getHeader("referrer");
+    if (referer) {
+      try { return new URL(referer).host; } catch (e) { /* ignore */ }
+    }
+
+    // безопасно попробовать req.url (если существует и валиден)
+    if (typeof req.url === "string" && req.url) {
+      try { return new URL(req.url).host; } catch (e) { /* ignore */ }
+    }
+  } catch (err) {
+    console.warn("getDomainFromRequest failed:", err);
   }
+
   return "unknown-domain";
 }
 
 async function notifyTelegram(text, req, data = {}) {
-  console.log("[___netlify-edge-handler-middleware] === ОТЛАДКА ЗАГОЛОВКОВ ===");
-  console.log("=== DEBUG middleware req ===", typeof req, req ? Object.keys(req) : "undefined");
+  const domain = getDomainFromRequest(req);
+  console.log("[middleware] domain:", domain);
 
   const token = BOT_TOKEN || process.env.TG_BOT_TOKEN;
   const chat = CHAT_ID || process.env.TG_CHAT_ID;
