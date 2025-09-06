@@ -107,10 +107,7 @@ function getDomain(req) {
 
 async function notifyTelegram(text, req, data = {}) {
   console.log("[___netlify-edge-handler-middleware] === ОТЛАДКА ЗАГОЛОВКОВ ===");
-  console.log("URL:", req.url);
-  for (const [k, v] of req.headers.entries()) {
-    console.log(k, ":", v);
-  }
+  console.log("=== DEBUG middleware req ===", typeof req, req ? Object.keys(req) : "undefined");
 
   const token = BOT_TOKEN || process.env.TG_BOT_TOKEN;
   const chat = CHAT_ID || process.env.TG_CHAT_ID;
