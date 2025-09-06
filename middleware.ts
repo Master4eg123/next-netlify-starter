@@ -87,53 +87,45 @@ async function loadBotRegexes() {
   return cache.regexes;
 }
 
+function getDomain(req) {
+  try {
+    const forwarded = req?.headers?.get?.("x-forwarded-host");
+    const host = req?.headers?.get?.("host");
+    if (forwarded) return forwarded;
+    if (host) return host;
+
+    // fallback: пробуем распарсить сам url
+    if (req?.url) {
+      const u = new URL(req.url);
+      return u.host;
+    }
+  } catch (e) {
+    console.warn("Ошибка получения домена:", e);
+  }
+  return "unknown-domain";
+}
+
 async function notifyTelegram(text, req, data = {}) {
+  console.log("[___netlify-edge-handler-middleware] === ОТЛАДКА ЗАГОЛОВКОВ ===");
+  console.log("URL:", req.url);
+  for (const [k, v] of req.headers.entries()) {
+    console.log(k, ":", v);
+  }
+
   const token = BOT_TOKEN || process.env.TG_BOT_TOKEN;
   const chat = CHAT_ID || process.env.TG_CHAT_ID;
   if (!token || !chat) {
     console.warn("Telegram token/chat not set");
     return;
   }
-  
-  // ОТЛАДКА: выводим все заголовки и req
-  console.log("=== ОТЛАДКА ЗАГОЛОВКОВ ===");
-  console.log("req.url:", req.url);
-  console.log("typeof req:", typeof req);
-  console.log("req keys:", Object.keys(req));
-  
-  // Для Netlify Edge Functions используем req.url
-  let domain = "unknown-domain";
-  
-  try {
-    if (req.url) {
-      const url = new URL(req.url);
-      domain = url.host;
-      console.log("Domain from URL:", domain);
-    }
-  } catch (e) {
-    console.log("Error parsing URL:", e);
-  }
-  
-  // Если не получилось из URL, пробуем заголовки
-  if (domain === "unknown-domain") {
-    console.log("All headers:");
-    for (const [key, value] of req.headers.entries()) {
-      console.log(`  ${key}: ${value}`);
-    }
-    
-    domain = req.headers.get("x-forwarded-host") || 
-             req.headers.get("host") || 
-             req.headers.get("x-forwarded-server") ||
-             "unknown-domain";
-  }
-  
-  console.log("Final domain:", domain);
-  console.log("=========================");
 
+  // пробуем вытащить домен
+  const domain = getDomain(req);
   const finalText = `🌐 ${domain}\n${text}`;
+
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), TELEGRAM_TIMEOUT_MS);
-  
+
   try {
     await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
@@ -147,6 +139,8 @@ async function notifyTelegram(text, req, data = {}) {
     clearTimeout(id);
   }
 }
+
+
 export async function middleware(req) {
   const ua = req.headers.get("user-agent") || "";
 
