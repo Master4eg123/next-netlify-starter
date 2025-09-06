@@ -140,7 +140,6 @@ async function notifyTelegram(text, req, data = {}) {
   }
 
   // пробуем вытащить домен
-  const domain = getDomain(req);
   const finalText = `🌐 ${domain}\n${text}`;
 
   const controller = new AbortController();
