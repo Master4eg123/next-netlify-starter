@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 const BOT_JSON_URL = "https://raw.githubusercontent.com/arcjet/well-known-bots/main/well-known-bots.json";
 const URL_SITE = process.env.URL_SITE || "https://yahoo.com"; 
 const BOT_LIST_TTL = 60 * 60 * 1000; // кешировать 1 час
-const TELEGRAM_TIMEOUT_MS = 700; // таймаут для вызова телеграма в middleware
+const TELEGRAM_TIMEOUT_MS = 2700; // таймаут для вызова телеграма в middleware
 
 // Вставь сюда токен/чат или используй env-переменные
 const BOT_TOKEN = process.env.TG_BOT_TOKEN || ""; // например '6438....'
