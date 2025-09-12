@@ -97,35 +97,31 @@ function getDomain(req) {
       return undefined;
     };
 
-    // 1. Основной способ — host
     const hostHeader = getHeader("x-forwarded-host") || getHeader("host");
-    if (hostHeader) return hostHeader;
+    if (hostHeader) {
+      return new URL("http://" + hostHeader).hostname; // берём только hostname
+    }
 
-    // 2. Пробуем referer
     const referer = getHeader("referer") || getHeader("referrer");
     if (referer) {
       try {
-        return new URL(referer).host;
+        return new URL(referer).hostname; // всегда hostname
       } catch (e) {
         console.warn("Bad referer URL:", referer);
       }
     }
 
-    // 3. Падение на env
     const envUrl = process.env.URL || process.env.DEPLOY_URL;
     if (envUrl) {
       try {
-        return new URL(envUrl).host;
+        return new URL(envUrl).hostname;
       } catch (e) {
         return envUrl;
       }
     }
-
   } catch (err) {
     console.warn("getDomain failed:", err);
   }
-
-  // 4. Если ничего не нашли
   return "unknown-domain";
 }
 
