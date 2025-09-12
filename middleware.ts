@@ -1,10 +1,3 @@
-girlgram - 188	167 (88.8%)	116	3
-mydatingreal.life - 1459	229 (15.7%)	1210	692 CR 1/116 
-сейчас              337	    67 (19.9%)	278	    121	 CR 1/31 EPC 0.04 5.7$ EMP 1.96
-only18plus.site - 126	94 (74.6%)	75	10
-slutwifedate - 129	67 (51.9%)	92	9 1/12 EPM 4.13
-topvstrechi - 106	96 (90.6%)	61	1 
-
 
 // middleware.js
 import { NextResponse } from "next/server";
