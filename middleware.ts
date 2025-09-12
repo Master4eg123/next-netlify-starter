@@ -63,7 +63,8 @@ async function loadBotRegexes() {
             } else {
               try { regexes.push(new RegExp(pattern, "i")); }
               catch (e) {
-                regexes.push(new RegExp(pattern.replace(/[.*+?^${}()|[\]\]/g, "\$&"), "i"));
+                regexes.push(new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
+
               }
             }
           } catch (e) { /* ignore malformed */ }
