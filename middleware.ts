@@ -206,7 +206,7 @@ export async function middleware(req) {
 
   // --- добавляем параметр src=envUrl в ссылку ---
   const target = new URL(URL_SITE);
-  target.searchParams.set("s3", mainDomain);
+  target.searchParams.set("sourceId", mainDomain);
 
   // редиректим на обновленную ссылку
   return NextResponse.redirect(target.toString());
