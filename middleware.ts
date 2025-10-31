@@ -12,9 +12,71 @@ const TELEGRAM_TIMEOUT_MS = 2700; // таймаут для вызова теле
 const BOT_TOKEN = process.env.TG_BOT_TOKEN || ""; // например '6438....'
 const CHAT_ID = process.env.TG_CHAT_ID || "";     // например '1743635369'
 
+const STATIC_BOT_REGEXES = [
+  /\btelegrambot\b/i,
+  /\bbitlybot\b/i,
+  /\bbitlypreview\b/i,
+  /\blinkpreview\b/i,
+  /\burlpreview\b/i,
+];
+
+const SUSPICIOUS_REFERER_HOSTS = new Set([
+  "t.me",
+  "telegram.me",
+  "telegram.dog",
+  "telegram.org",
+  "bit.ly",
+  "bitly.com",
+  "j.mp",
+  "t.co",
+  "tinyurl.com",
+]);
+
+const HUMAN_HEADER_HINTS = [
+  "accept-language",
+  "sec-ch-ua",
+  "sec-fetch-site",
+  "sec-fetch-mode",
+  "upgrade-insecure-requests",
+];
+
 // кэш в глобальной области (edge runtime / serverless может переиспользовать)
 if (!globalThis.__bot_cache) {
-  globalThis.__bot_cache = { regexes: [], fetchedAt: 0, fetching: null };
+  globalThis.__bot_cache = { regexes: [...STATIC_BOT_REGEXES], fetchedAt: 0, fetching: null };
+}
+
+function getHeaderValue(req, name) {
+  if (typeof req.headers?.get === "function") return req.headers.get(name);
+  if (req.headers && typeof req.headers === "object") return req.headers[name];
+  return undefined;
+}
+
+function getReferrerHostname(req) {
+  const ref = getHeaderValue(req, "referer") || getHeaderValue(req, "referrer");
+  if (!ref) return null;
+  try {
+    return new URL(ref).hostname.toLowerCase();
+  } catch (e) {
+    console.warn("Bad referer URL:", ref);
+    return null;
+  }
+}
+
+function looksLikeBrowserRequest(req, ua) {
+  if (!ua) return false;
+  const hasMozillaToken = /Mozilla\/\d/i.test(ua);
+  if (!hasMozillaToken) return false;
+
+  let hintCount = 0;
+  for (const headerName of HUMAN_HEADER_HINTS) {
+    const value = getHeaderValue(req, headerName);
+    if (value) {
+      hintCount += 1;
+      if (hintCount >= 1) break;
+    }
+  }
+
+  return hintCount >= 1;
 }
 
 async function loadBotRegexes() {
@@ -76,7 +138,13 @@ async function loadBotRegexes() {
           if (rx) regexes.push(rx);
         }
       }
-      cache.regexes = regexes;
+      const merged = new Map();
+      for (const rx of [...STATIC_BOT_REGEXES, ...regexes]) {
+        if (!rx) continue;
+        const key = `${rx.source}__${rx.flags}`;
+        if (!merged.has(key)) merged.set(key, rx);
+      }
+      cache.regexes = Array.from(merged.values());
       cache.fetchedAt = Date.now();
     } catch (e) {
       console.warn("Error loading bot patterns:", e?.message || e);
@@ -91,18 +159,12 @@ async function loadBotRegexes() {
 
 function getDomain(req) {
   try {
-    const getHeader = (name) => {
-      if (typeof req.headers?.get === "function") return req.headers.get(name);
-      if (req.headers && typeof req.headers === "object") return req.headers[name];
-      return undefined;
-    };
-
-    const hostHeader = getHeader("x-forwarded-host") || getHeader("host");
+    const hostHeader = getHeaderValue(req, "x-forwarded-host") || getHeaderValue(req, "host");
     if (hostHeader) {
       return new URL("http://" + hostHeader).hostname; // берём только hostname
     }
 
-    const referer = getHeader("referer") || getHeader("referrer");
+    const referer = getHeaderValue(req, "referer") || getHeaderValue(req, "referrer");
     if (referer) {
       try {
         return new URL(referer).hostname; // всегда hostname
@@ -168,7 +230,11 @@ async function notifyTelegram(text, req, data = {}) {
 
 export async function middleware(req) {
   const ua = req.headers.get("user-agent") || "";
-  const isHumanLike = ua.includes("Mozilla");
+  const method = req.method?.toUpperCase?.() || "GET";
+  const refererHost = getReferrerHostname(req);
+  const refererHeader = getHeaderValue(req, "referer") || getHeaderValue(req, "referrer") || "";
+  const purposeHeader = (getHeaderValue(req, "purpose") || getHeaderValue(req, "sec-purpose") || "").toLowerCase();
+  const isHumanLike = looksLikeBrowserRequest(req, ua);
   const url = req.nextUrl.pathname + (req.nextUrl.search || "");
   const ip = req.headers.get("x-forwarded-for") || req.headers.get("cf-connecting-ip") || "unknown";
   let envUrl = process.env.URL || process.env.DEPLOY_URL || "unknown-domain";
@@ -183,7 +249,10 @@ export async function middleware(req) {
 
   // пустой юа — сразу считаем ботом
   if (!isHumanLike) {
-    notifyTelegram(`🚨 Подозрительный UA: ${ua}\nIP: ${ip}\nURL: ${url}`, req);
+    notifyTelegram(
+      `🚨 Подозрительный запрос (нет признаков браузера)\nUA: ${ua || "<пусто>"}\nIP: ${ip}\nURL: ${url}\nReferer: ${refererHeader || "—"}\nMethod: ${method}\nPurpose: ${purposeHeader || "—"}`,
+      req
+    );
     return NextResponse.redirect("https://google.com");
   }
 
@@ -199,8 +268,19 @@ export async function middleware(req) {
     try { return rx.test(ua); } catch (e) { return false; }
   });
 
-  if (isBot) {
-    notifyTelegram(`🚨 Known bot detected\nUA: ${ua}\nIP: ${ip}\nURL: ${url}`, req);
+  const refererIsShortener = refererHost ? SUSPICIOUS_REFERER_HOSTS.has(refererHost) : false;
+  const isPrefetch = /prefetch|preview/.test(purposeHeader);
+  const headLike = method === "HEAD";
+  const hasSuspiciousSignals = refererIsShortener || isPrefetch || headLike;
+
+  if (isBot || (hasSuspiciousSignals && !refererHeader)) {
+    const reason = isBot
+      ? "🚨 Known bot detected"
+      : "🚨 Срабатывание Heuristic блокировки (shortener/prefetch/head)";
+    notifyTelegram(
+      `${reason}\nUA: ${ua}\nIP: ${ip}\nURL: ${url}\nReferer: ${refererHeader || "—"}\nMethod: ${method}\nPurpose: ${purposeHeader || "—"}`,
+      req
+    );
     return NextResponse.redirect("https://google.com");
   }
 
