@@ -278,7 +278,7 @@ export async function middleware(req) {
     );
     return NextResponse.redirect("https://google.com");
   }
-
+  console.log(`Url: ${envUrl} | Referer: ${refererHeader || "—"}`);
   // --- добавляем параметр src=envUrl в ссылку ---
   const target = new URL(URL_SITE);
   target.searchParams.set("s3", mainDomain);
