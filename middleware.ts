@@ -20,18 +20,6 @@ const STATIC_BOT_REGEXES = [
   /\burlpreview\b/i,
 ];
 
-const SUSPICIOUS_REFERER_HOSTS = new Set([
-  "t.me",
-  "telegram.me",
-  "telegram.dog",
-  "telegram.org",
-  "bit.ly",
-  "bitly.com",
-  "j.mp",
-  "t.co",
-  "tinyurl.com",
-]);
-
 const HUMAN_HEADER_HINTS = [
   "accept-language",
   "sec-ch-ua",
@@ -76,7 +64,14 @@ function looksLikeBrowserRequest(req, ua) {
     }
   }
 
-  return hintCount >= 1;
+  if (hintCount >= 1) return true;
+
+  const refererHeader = getHeaderValue(req, "referer") || getHeaderValue(req, "referrer");
+  if (refererHeader && req.method?.toUpperCase?.() === "GET") return true;
+
+  if (/Windows NT|Macintosh|Android|iPhone|iPad|Linux/i.test(ua)) return true;
+
+  return false;
 }
 
 async function loadBotRegexes() {
@@ -231,9 +226,9 @@ async function notifyTelegram(text, req, data = {}) {
 export async function middleware(req) {
   const ua = req.headers.get("user-agent") || "";
   const method = req.method?.toUpperCase?.() || "GET";
-  const refererHost = getReferrerHostname(req);
   const refererHeader = getHeaderValue(req, "referer") || getHeaderValue(req, "referrer") || "";
   const purposeHeader = (getHeaderValue(req, "purpose") || getHeaderValue(req, "sec-purpose") || "").toLowerCase();
+  const secFetchDest = (getHeaderValue(req, "sec-fetch-dest") || "").toLowerCase();
   const isHumanLike = looksLikeBrowserRequest(req, ua);
   const url = req.nextUrl.pathname + (req.nextUrl.search || "");
   const ip = req.headers.get("x-forwarded-for") || req.headers.get("cf-connecting-ip") || "unknown";
@@ -268,15 +263,15 @@ export async function middleware(req) {
     try { return rx.test(ua); } catch (e) { return false; }
   });
 
-  const refererIsShortener = refererHost ? SUSPICIOUS_REFERER_HOSTS.has(refererHost) : false;
-  const isPrefetch = /prefetch|preview/.test(purposeHeader);
-  const headLike = method === "HEAD";
-  const hasSuspiciousSignals = refererIsShortener || isPrefetch || headLike;
+  const isPreview = /prefetch|preview|prerender/.test(purposeHeader) || secFetchDest === "empty";
+  const suspiciousHead = method === "HEAD" && !refererHeader;
 
-  if (isBot || (hasSuspiciousSignals && !refererHeader)) {
+  if (isBot || isPreview || suspiciousHead) {
     const reason = isBot
       ? "🚨 Known bot detected"
-      : "🚨 Срабатывание Heuristic блокировки (shortener/prefetch/head)";
+      : isPreview
+        ? "🚨 Срабатывание Heuristic блокировки (purpose: preview/prefetch)"
+        : "🚨 Срабатывание Heuristic блокировки (HEAD без referer)";
     notifyTelegram(
       `${reason}\nUA: ${ua}\nIP: ${ip}\nURL: ${url}\nReferer: ${refererHeader || "—"}\nMethod: ${method}\nPurpose: ${purposeHeader || "—"}`,
       req
