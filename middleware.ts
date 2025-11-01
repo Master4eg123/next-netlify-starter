@@ -7,7 +7,7 @@ const BOT_JSON_URL = "https://raw.githubusercontent.com/arcjet/well-known-bots/m
 const URL_SITE = process.env.URL_SITE || "https://yahoo.com"; 
 const BOT_LIST_TTL = 60 * 60 * 1000; // кешировать 1 час
 const TELEGRAM_TIMEOUT_MS = 2700; // таймаут для вызова телеграма в middleware
-
+const PRIMARY_HOST = (process.env.URL && new URL(process.env.URL).hostname.toLowerCase()) || "girlgram.ru";
 // Вставь сюда токен/чат или используй env-переменные
 const BOT_TOKEN = process.env.TG_BOT_TOKEN || ""; // например '6438....'
 const CHAT_ID = process.env.TG_CHAT_ID || "";     // например '1743635369'
@@ -154,12 +154,12 @@ async function loadBotRegexes() {
 
 function getDomain(req) {
   try {
+    const forwardedHost =
+      getHeaderValue(req, "x-forwarded-host") || getHeaderValue(req, "host");
     const urlHost = req.nextUrl?.hostname;
     const originalHost =
       getHeaderValue(req, "x-nf-original-host") ||
       getHeaderValue(req, "x-nf-edge-host");
-    const forwardedHost =
-      getHeaderValue(req, "x-forwarded-host") || getHeaderValue(req, "host");
     const refHost = getReferrerHostname(req);
     const envHost = process.env.URL || process.env.DEPLOY_URL || "";
 
@@ -167,19 +167,26 @@ function getDomain(req) {
       "[domain-debug]",
       JSON.stringify({
         urlHost,
-        originalHost,
         forwardedHost,
+        originalHost,
         refHost,
         envHost,
       })
     );
 
+    if (forwardedHost) {
+      const host = forwardedHost.split(",")[0].trim().toLowerCase();
+      if (!PRIMARY_HOST || host !== PRIMARY_HOST) return host;
+    }
+
     if (urlHost) return urlHost.toLowerCase();
     if (originalHost) return originalHost.toLowerCase();
     if (refHost) return refHost;
+
     if (forwardedHost) {
       return new URL("http://" + forwardedHost).hostname.toLowerCase();
     }
+
     if (envHost) {
       try {
         return new URL(envHost).hostname.toLowerCase();
