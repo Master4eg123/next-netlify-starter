@@ -154,51 +154,179 @@ async function loadBotRegexes() {
 
 function getDomain(req) {
   try {
-    const forwardedHost =
-      getHeaderValue(req, "x-forwarded-host") || getHeaderValue(req, "host");
-    const urlHost = req.nextUrl?.hostname;
-    const originalHost =
+    // --- соберём сырые значения ---
+    const urlHostRaw = req?.nextUrl?.hostname || null;
+    const urlHost = urlHostRaw ? String(urlHostRaw).toLowerCase() : null;
+
+    const forwardedHeader = getHeaderValue(req, "forwarded") || ""; // RFC 7239
+    const xForwardedHostRaw = getHeaderValue(req, "x-forwarded-host") || "";
+    const xForwardedHost = xForwardedHostRaw.split(",")[0].trim() || "";
+    const hostHeaderRaw = getHeaderValue(req, "host") || "";
+
+    // попытка безопасно извлечь hostname из hostHeaderRaw (в т.ч. с портом)
+    let hostHeader = "";
+    try {
+      if (hostHeaderRaw) hostHeader = new URL("http://" + hostHeaderRaw).hostname.toLowerCase();
+    } catch (e) {
+      hostHeader = hostHeaderRaw ? String(hostHeaderRaw).toLowerCase() : "";
+    }
+
+    // разные подсказки от CDN/edge
+    const originalHostRaw =
       getHeaderValue(req, "x-nf-original-host") ||
-      getHeaderValue(req, "x-nf-edge-host");
-    const refHost = getReferrerHostname(req);
-    const envHost = process.env.URL || process.env.DEPLOY_URL || "";
+      getHeaderValue(req, "x-nf-edge-host") ||
+      getHeaderValue(req, "x-original-host") ||
+      getHeaderValue(req, "x-forwarded-server") ||
+      "";
+    const originalHost = originalHostRaw ? String(originalHostRaw).toLowerCase() : "";
 
-    console.info(
-      "[domain-debug]",
-      JSON.stringify({
-        urlHost,
-        forwardedHost,
-        originalHost,
-        refHost,
-        envHost,
-      })
-    );
-
-    if (forwardedHost) {
-      const host = forwardedHost.split(",")[0].trim().toLowerCase();
-      if (!PRIMARY_HOST || host !== PRIMARY_HOST) return host;
+    // реферер (полный URL) -> hostname
+    const refRaw = getHeaderValue(req, "referer") || getHeaderValue(req, "referrer") || "";
+    let refHost = null;
+    try {
+      if (refRaw) refHost = new URL(refRaw).hostname.toLowerCase();
+    } catch (e) {
+      refHost = null;
     }
 
-    if (urlHost) return urlHost.toLowerCase();
-    if (originalHost) return originalHost.toLowerCase();
-    if (refHost) return refHost;
-
-    if (forwardedHost) {
-      return new URL("http://" + forwardedHost).hostname.toLowerCase();
+    // env fallback
+    const envRaw = process.env.URL || process.env.DEPLOY_URL || process.env.NEXT_PUBLIC_SITE_URL || "";
+    let envHost = null;
+    try {
+      if (envRaw) envHost = new URL(String(envRaw)).hostname.toLowerCase();
+    } catch (e) {
+      if (envRaw) envHost = String(envRaw).toLowerCase();
     }
 
-    if (envHost) {
+    // --- inline-normalize (remove www.) ---
+    const normalize = (h) => {
+      if (!h) return null;
       try {
-        return new URL(envHost).hostname.toLowerCase();
-      } catch {
-        return envHost;
+        return String(h).replace(/^www\./i, "").toLowerCase();
+      } catch (e) {
+        return String(h).toLowerCase();
+      }
+    };
+
+    const parsedForwardedHost = (() => {
+      // Forwarded: for=198.51.100.17;host="example.com";proto=https
+      if (!forwardedHeader) return null;
+      try {
+        const parts = forwardedHeader.split(";").map(p => p.trim());
+        for (const p of parts) {
+          const idx = p.indexOf("=");
+          if (idx === -1) continue;
+          const k = p.slice(0, idx).trim().toLowerCase();
+          let v = p.slice(idx + 1).trim();
+          if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1);
+          if (k === "host" && v) return String(v).toLowerCase();
+        }
+      } catch (e) {}
+      return null;
+    })();
+
+    // --- подготовим объект для одного большого лога ---
+    const parsed = {
+      timestamp: new Date().toISOString(),
+      urlHost: normalize(urlHost),
+      urlFull: req?.nextUrl?.href || (req?.url || null),
+      urlPath: req?.nextUrl?.pathname || null,
+      forwardedHeader: forwardedHeader || null,
+      parsedForwardedHost: normalize(parsedForwardedHost),
+      xForwardedHost: normalize(xForwardedHost),
+      hostHeader: normalize(hostHeader),
+      originalHost: normalize(originalHost),
+      refHost: normalize(refHost),
+      envHost: normalize(envHost),
+      method: req?.method || null,
+      ip:
+        (getHeaderValue(req, "x-forwarded-for") || "").split(",")[0]?.trim() ||
+        getHeaderValue(req, "cf-connecting-ip") ||
+        getHeaderValue(req, "x-real-ip") ||
+        "unknown",
+      ua: (() => {
+        const ua = getHeaderValue(req, "user-agent") || "";
+        return ua ? (ua.length > 160 ? ua.slice(0, 160) + "…" : ua) : null;
+      })(),
+    };
+
+    // соберём несколько важных заголовков для контекста
+    const debugHeaders = {};
+    const headersOfInterest = [
+      "sec-fetch-site",
+      "sec-fetch-mode",
+      "sec-fetch-dest",
+      "purpose",
+      "sec-purpose",
+      "x-request-id",
+      "x-nf-request-id",
+      "cf-ray",
+      "cf-connecting-ip",
+      "x-real-ip",
+      "x-forwarded-proto",
+      "x-forwarded-for",
+      "accept-language",
+      "referer",
+      "host",
+      "x-forwarded-host",
+      "user-agent",
+    ];
+    for (const h of headersOfInterest) {
+      const v = getHeaderValue(req, h);
+      if (v) debugHeaders[h] = v;
+    }
+
+    // --- единичный подробный лог в самом начале ---
+    const shouldLog =
+      (typeof process !== "undefined" &&
+        ((process.env && (process.env.DEBUG_DOMAIN === "true" || process.env.ENABLE_REFERRER_DEBUG === "true")) ||
+          true)) || // по умолчанию true для диагностики — поменяй на env-флаг в проде
+      true;
+    if (shouldLog) {
+      try {
+        console.info("[Next.js Middleware] [domain-debug] " + JSON.stringify({ parsed, debugHeaders }));
+      } catch (e) {
+        try {
+          console.info("[Next.js Middleware] [domain-debug]", parsed, debugHeaders);
+        } catch (__) {}
       }
     }
+
+    // --- правила выбора домена (приоритеты) ---
+    // 1) Если есть реферер и он явно внешний (не совпадает с нашими известными хостами) — используем его
+    if (parsed.refHost) {
+      const compareCandidates = [
+        normalize(parsed.urlHost),
+        normalize(parsed.xForwardedHost),
+        normalize(parsed.hostHeader),
+        normalize(parsed.envHost),
+      ].filter(Boolean);
+      if (!compareCandidates.includes(normalize(parsed.refHost))) {
+        return normalize(parsed.refHost);
+      }
+    }
+
+    // 2) req.nextUrl.hostname — обычно отражает реальный открытый URL
+    if (parsed.urlHost) return normalize(parsed.urlHost);
+
+    // 3) оригинальные заголовки от edge/CDN
+    if (parsed.originalHost) return normalize(parsed.originalHost);
+
+    // 4) parsed Forwarded host (RFC)
+    if (parsed.parsedForwardedHost) return normalize(parsed.parsedForwardedHost);
+
+    // 5) x-forwarded-host / host header
+    if (parsed.xForwardedHost) return normalize(parsed.xForwardedHost);
+    if (parsed.hostHeader) return normalize(parsed.hostHeader);
+
+    // 6) env fallback
+    if (parsed.envHost) return normalize(parsed.envHost);
   } catch (err) {
     console.warn("getDomain failed:", err);
   }
   return "unknown-domain";
 }
+
 
 async function notifyTelegram(text, req, data = {}) {
   let envUrl = "unknown-domain";
