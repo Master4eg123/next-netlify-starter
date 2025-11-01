@@ -154,34 +154,37 @@ async function loadBotRegexes() {
 
 function getDomain(req) {
   try {
-    // 1. реальный домен из запроса (Next/Edge его уже парсит)
     const urlHost = req.nextUrl?.hostname;
-    if (urlHost) return urlHost.toLowerCase();
-
-    // 2. оригинальный хост от Netlify (если прокидывается)
     const originalHost =
       getHeaderValue(req, "x-nf-original-host") ||
       getHeaderValue(req, "x-nf-edge-host");
-    if (originalHost) return originalHost.toLowerCase();
-
-    // 3. fallback: referer
-    const ref = getReferrerHostname(req);
-    if (ref) return ref;
-
-    // 4. последний вариант — стандартные host/x-forwarded-host
-    const hostHeader =
+    const forwardedHost =
       getHeaderValue(req, "x-forwarded-host") || getHeaderValue(req, "host");
-    if (hostHeader) {
-      return new URL("http://" + hostHeader).hostname.toLowerCase();
-    }
+    const refHost = getReferrerHostname(req);
+    const envHost = process.env.URL || process.env.DEPLOY_URL || "";
 
-    // 5. env URL
-    const envUrl = process.env.URL || process.env.DEPLOY_URL;
-    if (envUrl) {
+    console.info(
+      "[domain-debug]",
+      JSON.stringify({
+        urlHost,
+        originalHost,
+        forwardedHost,
+        refHost,
+        envHost,
+      })
+    );
+
+    if (urlHost) return urlHost.toLowerCase();
+    if (originalHost) return originalHost.toLowerCase();
+    if (refHost) return refHost;
+    if (forwardedHost) {
+      return new URL("http://" + forwardedHost).hostname.toLowerCase();
+    }
+    if (envHost) {
       try {
-        return new URL(envUrl).hostname.toLowerCase();
-      } catch (_) {
-        return envUrl;
+        return new URL(envHost).hostname.toLowerCase();
+      } catch {
+        return envHost;
       }
     }
   } catch (err) {
