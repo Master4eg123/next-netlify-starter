@@ -52,6 +52,7 @@ function getReferrerHostname(req) {
 function looksLikeBrowserRequest(req, ua) {
   if (!ua) return false;
   const hasMozillaToken = /Mozilla\/\d/i.test(ua);
+  const acceptLanguage = (getHeaderValue(req, "accept-language") || "").trim();
   if (!hasMozillaToken) return false;
 
   let hintCount = 0;
@@ -62,9 +63,11 @@ function looksLikeBrowserRequest(req, ua) {
       if (hintCount >= 1) break;
     }
   }
-
+  if (!acceptLanguage || acceptLanguage === "-" || !/[a-z]{2}(-[A-Z]{2})?/i.test(acceptLanguage.split(",")[0])) {
+  return false;
+  }
   if (hintCount >= 1) return true;
-
+  
   const refererHeader = getHeaderValue(req, "referer") || getHeaderValue(req, "referrer");
   if (refererHeader && req.method?.toUpperCase?.() === "GET") return true;
 
