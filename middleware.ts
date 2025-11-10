@@ -53,6 +53,7 @@ function looksLikeBrowserRequest(req, ua) {
   if (!ua) return false;
   const hasMozillaToken = /Mozilla\/\d/i.test(ua);
   const acceptLanguage = (getHeaderValue(req, "accept-language") || "").trim();
+  const secChUa = (getHeaderValue(req, "secChUa") || "").trim();
   if (!hasMozillaToken) return false;
 
   let hintCount = 0;
@@ -64,6 +65,9 @@ function looksLikeBrowserRequest(req, ua) {
     }
   }
   if (!acceptLanguage || acceptLanguage === "-" || !/[a-z]{2}(-[A-Z]{2})?/i.test(acceptLanguage.split(",")[0])) {
+  return false;
+  }
+  if (!secChUa || secChUa === "-" || !/[a-z]{2}(-[A-Z]{2})?/i.test(secChUa.split(",")[0])) {
   return false;
   }
   if (hintCount >= 1) return true;
@@ -251,15 +255,6 @@ export async function middleware(req) {
   const secChUaMobile = getHeaderValue(req, "sec-ch-ua-mobile") || "-";
   const secChUaPlatform = getHeaderValue(req, "sec-ch-ua-platform") || "-";
 
-  // пустой юа — сразу считаем ботом
-  if (!isHumanLike) {
-    notifyTelegram(
-      `🚨 Подозрительный запрос (нет признаков браузера)\nUA: ${ua || "<пусто>"}\nIP: ${ip}\nURL: ${url}\nReferer: ${refererHeader || "—"}\nMethod: ${method}\nPurpose: ${purposeHeader || "—"}`,
-      req
-    );
-    return NextResponse.redirect("https://google.com");
-  }
-
   // загружаем паттерны (из кэша или сети)
   let regexes = [];
   try {
@@ -287,7 +282,14 @@ export async function middleware(req) {
     );
     return NextResponse.redirect("https://google.com");
   }
-
+  // пустой юа — сразу считаем ботом
+  if (!isHumanLike) {
+    notifyTelegram(
+      `🚨 Подозрительный запрос (нет признаков браузера)\nUA: ${ua || "<пусто>"}\nIP: ${ip}\nURL: ${url}\nReferer: ${refererHeader || "—"}\nMethod: ${method}\nPurpose: ${purposeHeader || "—"}`,
+      req
+    );
+    return NextResponse.redirect("https://google.com");
+  }
   // --- улучшенный лог: теперь вместе с mainDomain и referer выводим данные посетителя ---
   try {
     console.log(JSON.stringify({
