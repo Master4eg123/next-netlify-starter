@@ -51,32 +51,48 @@ function getReferrerHostname(req) {
 
 function looksLikeBrowserRequest(req, ua) {
   if (!ua) return false;
-  const hasMozillaToken = /Mozilla\/\d/i.test(ua);
-  const acceptLanguage = (getHeaderValue(req, "accept-language") || "").trim();
-  const secChUa = (getHeaderValue(req, "secChUa") || "").trim();
-  if (!hasMozillaToken) return false;
 
+  // читаем заголовки в стандартном kebab-case
+  const acceptLanguage = (getHeaderValue(req, "accept-language") || "").trim();
+  const secChUa = (getHeaderValue(req, "sec-ch-ua") || getHeaderValue(req, "sec-ch-ua-full") || "").trim();
+  const secChUaMobile = (getHeaderValue(req, "sec-ch-ua-mobile") || "").trim();
+  const secChUaPlatform = (getHeaderValue(req, "sec-ch-ua-platform") || "").trim();
+
+  // базовый признак "браузерности"
+  const hasMozillaToken = /Mozilla\/\d/i.test(ua);
+
+  // подсчёт вспомогательных заголовков (используем HUMAN_HEADER_HINTS — они в kebab-case)
   let hintCount = 0;
   for (const headerName of HUMAN_HEADER_HINTS) {
     const value = getHeaderValue(req, headerName);
-    if (value) {
-      hintCount += 1;
-      if (hintCount >= 1) break;
-    }
+    if (value && String(value).trim() && String(value).trim() !== "-") hintCount += 1;
   }
-  if (!acceptLanguage || acceptLanguage === "-" || !/[a-z]{2}(-[A-Z]{2})?/i.test(acceptLanguage.split(",")[0])) {
-  return false;
-  }
-  
-  if (hintCount >= 1) return true;
-  
+
+  // строгое правило для sec-ch-ua: должен существовать и не быть просто прочерком
+  const hasValidSecChUa = !!secChUa && secChUa !== "-" && secChUa !== '""' && secChUa.length > 1;
+
+  // проверка accept-language: простой sanity-check (не "-")
+  const hasAcceptLang = !!acceptLanguage && acceptLanguage !== "-";
+
+  // если нет Mozilla-токена — скорее всего не браузер
+  if (!hasMozillaToken) return false;
+
+  // Если есть валидный sec-ch-ua и хотя бы один hint — считаем браузерным
+  if (hasValidSecChUa && hintCount >= 1) return true;
+
+  // Если есть accept-language и хотя бы один hint — тоже считаем браузером
+  if (hasAcceptLang && hintCount >= 1) return true;
+
+  // Сильный сигнал: реферер для GET-запроса
   const refererHeader = getHeaderValue(req, "referer") || getHeaderValue(req, "referrer");
   if (refererHeader && req.method?.toUpperCase?.() === "GET") return true;
 
+  // Если UA явно указывает на обычную платформу — считаем браузером
   if (/Windows NT|Macintosh|Android|iPhone|iPad|Linux/i.test(ua)) return true;
 
   return false;
 }
+
 
 async function loadBotRegexes() {
   const now = Date.now();
