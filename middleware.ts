@@ -52,46 +52,99 @@ function getReferrerHostname(req) {
 function looksLikeBrowserRequest(req, ua) {
   if (!ua) return false;
 
-  // читаем заголовки в стандартном kebab-case
+  // читаем заголовки в kebab-case
   const acceptLanguage = (getHeaderValue(req, "accept-language") || "").trim();
   const secChUa = (getHeaderValue(req, "sec-ch-ua") || getHeaderValue(req, "sec-ch-ua-full") || "").trim();
   const secChUaMobile = (getHeaderValue(req, "sec-ch-ua-mobile") || "").trim();
   const secChUaPlatform = (getHeaderValue(req, "sec-ch-ua-platform") || "").trim();
+  const secFetchSite = (getHeaderValue(req, "sec-fetch-site") || "").trim();
+  const secFetchMode = (getHeaderValue(req, "sec-fetch-mode") || "").trim();
+  const upgradeInsecureRequests = (getHeaderValue(req, "upgrade-insecure-requests") || "").trim();
 
-  // базовый признак "браузерности"
+  // базовый "Mozilla" признак — полезен, но не окончателен
   const hasMozillaToken = /Mozilla\/\d/i.test(ua);
 
-  // подсчёт вспомогательных заголовков (используем HUMAN_HEADER_HINTS — они в kebab-case)
+  // нормализуем функцию для проверки валидности заголовка (не пустой и не '-')
+  const isValidHeader = v => !!v && String(v).trim() !== "-" && String(v).trim().length > 0;
+
+  // набор положительных сигналов (каждый = 1 балл)
+  let score = 0;
+  if (isValidHeader(secChUa)) score += 2;          // сильный позитив — chromium-like client hints
+  if (isValidHeader(secChUaMobile)) score += 1;    // доп. подсказки
+  if (isValidHeader(secChUaPlatform)) score += 1;
+  if (isValidHeader(acceptLanguage)) score += 2;   // часто есть у настоящих браузеров
+  if (isValidHeader(secFetchSite)) score += 1;
+  if (isValidHeader(secFetchMode)) score += 1;
+  if (isValidHeader(upgradeInsecureRequests)) score += 1;
+
+  // подсчёт вспомогательных хедеров из HUMAN_HEADER_HINTS (если они есть и валидны)
   let hintCount = 0;
   for (const headerName of HUMAN_HEADER_HINTS) {
-    const value = getHeaderValue(req, headerName);
-    if (value && String(value).trim() && String(value).trim() !== "-") hintCount += 1;
+    const v = getHeaderValue(req, headerName);
+    if (isValidHeader(v)) hintCount += 1;
   }
 
-  // строгое правило для sec-ch-ua: должен существовать и не быть просто прочерком
-  const hasValidSecChUa = !!secChUa && secChUa !== "-" && secChUa !== '""' && secChUa.length > 1;
-
-  // проверка accept-language: простой sanity-check (не "-")
-  const hasAcceptLang = !!acceptLanguage && acceptLanguage !== "-";
-
-  // если нет Mozilla-токена — скорее всего не браузер
-  if (!hasMozillaToken) return false;
-
-  // Если есть валидный sec-ch-ua и хотя бы один hint — считаем браузерным
-  if (hasValidSecChUa && hintCount >= 1) return true;
-
-  // Если есть accept-language и хотя бы один hint — тоже считаем браузером
-  if (hasAcceptLang && hintCount >= 1) return true;
-
-  // Сильный сигнал: реферер для GET-запроса
+  // сильный сигнал: есть Referer и это GET-запрос
   const refererHeader = getHeaderValue(req, "referer") || getHeaderValue(req, "referrer");
-  if (refererHeader && req.method?.toUpperCase?.() === "GET") return true;
+  const hasReferer = isValidHeader(refererHeader);
+  const isGetWithReferer = hasReferer && req.method?.toUpperCase?.() === "GET";
 
-  // Если UA явно указывает на обычную платформу — считаем браузером
-  if (/Windows NT|Macintosh|Android|iPhone|iPad|Linux/i.test(ua)) return true;
+  // ещё один сигнал — UA-платформа (обычные ОС)
+  const uaPlatformLikely = /Windows NT|Macintosh|Android|iPhone|iPad|Linux/i.test(ua);
 
+  // логика решения:
+  // - требуем основу: есть Mozilla-token OR явная платформа в UA (чтобы откинуть простые http-клиенты)
+  // - затем достаточно одного из:
+  //    * score >= 3 (несколько дружелюбных заголовков)
+  //    * isGetWithReferer (сильный сигнал)
+  //    * hintCount >= 1 && accept-language валиден (мягкий сигнал для Safari/Firefox)
+  //    * или uaPlatformLikely + hintCount >= 1
+  if (!hasMozillaToken && !uaPlatformLikely) {
+    // совсем нет признаков browser-like UA
+    if (process.env.DEBUG_BROWSER_DETECT) {
+      console.debug("looksLikeBrowserRequest: fail base UA check", { hasMozillaToken, uaPlatformLikely, ua });
+    }
+    return false;
+  }
+
+  if (score >= 3) {
+    if (process.env.DEBUG_BROWSER_DETECT) {
+      console.debug("looksLikeBrowserRequest: pass by score", { score, secChUa, acceptLanguage, secFetchSite });
+    }
+    return true;
+  }
+
+  if (isGetWithReferer) {
+    if (process.env.DEBUG_BROWSER_DETECT) {
+      console.debug("looksLikeBrowserRequest: pass by referer+GET", { refererHeader });
+    }
+    return true;
+  }
+
+  if (hintCount >= 1 && isValidHeader(acceptLanguage)) {
+    // это покрывает Safari/Firefox: у них есть accept-language и хотя бы один вспомогательный хедер
+    if (process.env.DEBUG_BROWSER_DETECT) {
+      console.debug("looksLikeBrowserRequest: pass by hintCount+acceptLanguage", { hintCount, acceptLanguage });
+    }
+    return true;
+  }
+
+  if (uaPlatformLikely && hintCount >= 1) {
+    if (process.env.DEBUG_BROWSER_DETECT) {
+      console.debug("looksLikeBrowserRequest: pass by uaPlatformLikely+hintCount", { uaPlatformLikely, hintCount });
+    }
+    return true;
+  }
+
+  // иначе считаем подозрительным
+  if (process.env.DEBUG_BROWSER_DETECT) {
+    console.debug("looksLikeBrowserRequest: fail all checks", {
+      score, hintCount, isGetWithReferer, hasMozillaToken, uaPlatformLikely, acceptLanguage, secChUa
+    });
+  }
   return false;
 }
+
 
 
 async function loadBotRegexes() {
