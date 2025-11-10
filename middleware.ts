@@ -18,6 +18,29 @@ const STATIC_BOT_REGEXES = [
   /\burlpreview\b/i,
 ];
 
+// Подозрительные URL паттерны (сканеры уязвимостей)
+const SUSPICIOUS_URL_PATTERNS = [
+  /\.php$/i,                          // любые .php файлы
+  /\.env/i,                           // env файлы
+  /\/wp-admin\//i,                    // WordPress admin
+  /\/wp-content\//i,                  // WordPress content
+  /\/wp-includes\//i,                 // WordPress includes
+  /\/wp-login/i,                      // WordPress login
+  /\/xmlrpc\.php/i,                   // WordPress XML-RPC
+  /\/phpmyadmin/i,                    // phpMyAdmin
+  /\/admin/i,                         // общие admin пути
+  /\/config\./i,                      // config файлы
+  /\/setup/i,                         // setup скрипты
+  /\/install/i,                       // install скрипты
+  /\/backup/i,                        // backup файлы
+  /\/db/i,                            // database файлы
+  /\/sql/i,                           // SQL файлы
+  /\.sql/i,                           // SQL расширения
+  /\.bak/i,                           // backup расширения
+  /\.old/i,                           // old файлы
+  /\.log/i,                           // log файлы
+];
+
 const HUMAN_HEADER_HINTS = [
   "accept-language",
   "sec-ch-ua",
@@ -78,6 +101,57 @@ function looksLikeBrowserRequest(req, ua) {
   if (/Windows NT|Macintosh|Android|iPhone|iPad|Linux/i.test(ua)) return true;
 
   return false;
+}
+
+// Проверка на сканер уязвимостей
+function isSuspiciousScanner(req, url) {
+  // Проверка 1: Подозрительный URL (PHP, WordPress, админки и т.д.)
+  const hasSuspiciousUrl = SUSPICIOUS_URL_PATTERNS.some(pattern => pattern.test(url));
+  
+  if (hasSuspiciousUrl) {
+    // Подозрительный URL - это уже сильный индикатор
+    return {
+      suspicious: true,
+      reason: "🔴 Сканер уязвимостей: подозрительный URL"
+    };
+  }
+  
+  // Проверка 2: Все sec-ch-* заголовки отсутствуют или равны "-"
+  const secChUa = (getHeaderValue(req, "sec-ch-ua") || "-").trim();
+  const secChUaMobile = (getHeaderValue(req, "sec-ch-ua-mobile") || "-").trim();
+  const secChUaPlatform = (getHeaderValue(req, "sec-ch-ua-platform") || "-").trim();
+  const acceptLanguage = (getHeaderValue(req, "accept-language") || "-").trim();
+  
+  const allSecChAreMissing = 
+    (secChUa === "-" || !secChUa) && 
+    (secChUaMobile === "-" || !secChUaMobile) && 
+    (secChUaPlatform === "-" || !secChUaPlatform);
+  
+  // Проверка 3: Accept-Language подозрительный
+  const suspiciousLang = acceptLanguage === "-" || !acceptLanguage;
+  
+  // Проверка 4: Referer указывает на подозрительный путь
+  const referer = getHeaderValue(req, "referer") || getHeaderValue(req, "referrer") || "";
+  const refererSuspicious = SUSPICIOUS_URL_PATTERNS.some(pattern => pattern.test(referer));
+  
+  // Комбинированная эвристика:
+  // - Если все sec-ch-* заголовки отсутствуют И accept-language подозрительный
+  if (allSecChAreMissing && suspiciousLang) {
+    return {
+      suspicious: true,
+      reason: "🔴 Сканер уязвимостей: поддельные заголовки браузера"
+    };
+  }
+  
+  // - Если referer указывает на подозрительный путь
+  if (refererSuspicious) {
+    return {
+      suspicious: true,
+      reason: "🔴 Сканер уязвимостей: подозрительный referer"
+    };
+  }
+  
+  return { suspicious: false };
 }
 
 
@@ -271,13 +345,18 @@ export async function middleware(req) {
 
   const isPreview = /prefetch|preview|prerender/.test(purposeHeader) || secFetchDest === "empty";
   const suspiciousHead = method === "HEAD" && !refererHeader;
+  
+  // Проверка на сканеры уязвимостей
+  const scannerCheck = isSuspiciousScanner(req, url);
 
-  if (isBot || isPreview || suspiciousHead) {
+  if (isBot || isPreview || suspiciousHead || scannerCheck.suspicious) {
     const reason = isBot
       ? "🚨 Known bot detected"
       : isPreview
         ? "🚨 Срабатывание Heuristic блокировки (purpose: preview/prefetch)"
-        : "🚨 Срабатывание Heuristic блокировки (HEAD без referer)";
+        : suspiciousHead
+          ? "🚨 Срабатывание Heuristic блокировки (HEAD без referer)"
+          : scannerCheck.reason;
     notifyTelegram(
       `${reason}\nUA: ${ua}\nIP: ${ip}\nURL: ${url}\nReferer: ${refererHeader || "—"}\nMethod: ${method}\nPurpose: ${purposeHeader || "—"}`,
       req
@@ -305,6 +384,7 @@ export async function middleware(req) {
       secChUa,
       secChUaMobile,
       secChUaPlatform,
+      isBot: false, // легитимный трафик (боты уже отфильтрованы выше)
       timestamp: new Date().toISOString()
     }));
   } catch (e) {
