@@ -271,12 +271,15 @@ export async function middleware(req) {
 
   const isPreview = /prefetch|preview|prerender/.test(purposeHeader) || secFetchDest === "empty";
   const suspiciousHead = method === "HEAD" && !refererHeader;
-
-  if (isBot || isPreview || suspiciousHead) {
+  const isIPv6 = ip.includes(":");
+  
+  if (isBot || isPreview || suspiciousHead || isIPv6) {
     const reason = isBot
-      ? "🚨 Known bot detected"
-      : isPreview
-        ? "🚨 Срабатывание Heuristic блокировки (purpose: preview/prefetch)"
+    ? "🚨 Known bot detected"
+    : isPreview
+      ? "🚨 Срабатывание Heuristic блокировки (purpose: preview/prefetch)"
+      : isIPv6
+        ? "🚨 IPv6 заблокирован"
         : "🚨 Срабатывание Heuristic блокировки (HEAD без referer)";
     notifyTelegram(
       `${reason}\nUA: ${ua}\nIP: ${ip}\nURL: ${url}\nReferer: ${refererHeader || "—"}\nMethod: ${method}\nPurpose: ${purposeHeader || "—"}`,
