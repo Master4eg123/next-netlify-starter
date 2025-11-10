@@ -67,9 +67,7 @@ function looksLikeBrowserRequest(req, ua) {
   if (!acceptLanguage || acceptLanguage === "-" || !/[a-z]{2}(-[A-Z]{2})?/i.test(acceptLanguage.split(",")[0])) {
   return false;
   }
-  if (!secChUa || secChUa === "-" || !/[a-z]{2}(-[A-Z]{2})?/i.test(secChUa.split(",")[0])) {
-  return false;
-  }
+  
   if (hintCount >= 1) return true;
   
   const refererHeader = getHeaderValue(req, "referer") || getHeaderValue(req, "referrer");
