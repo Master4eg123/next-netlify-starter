@@ -26,6 +26,31 @@ const HUMAN_HEADER_HINTS = [
   "upgrade-insecure-requests",
 ];
 
+// Подозрительные пути, которые указывают на сканеры уязвимостей
+const SUSPICIOUS_PATHS = [
+  /\/env\.php$/i,
+  /\/\.env$/i,
+  /\/wp-admin\//i,
+  /\/wp-login\.php$/i,
+  /\/wp-config\.php$/i,
+  /\/setup-config\.php$/i,
+  /\/xmlrpc\.php$/i,
+  /\/phpmyadmin/i,
+  /\/admin\.php$/i,
+  /\/config\.php$/i,
+  /\/database\.php$/i,
+  /\/db\.php$/i,
+  /\/\.git\//i,
+  /\/\.aws\//i,
+  /\/\.ssh\//i,
+  /\/\.htaccess$/i,
+  /\/shell\.php$/i,
+  /\/phpinfo\.php$/i,
+  /\/adminer\.php$/i,
+  /\/sql/i,
+  /\/mysql/i,
+];
+
 // кэш в глобальной области (edge runtime / serverless может переиспользовать)
 if (!globalThis.__bot_cache) {
   globalThis.__bot_cache = { regexes: [...STATIC_BOT_REGEXES], fetchedAt: 0, fetching: null };
@@ -78,6 +103,56 @@ function looksLikeBrowserRequest(req, ua) {
   if (/Windows NT|Macintosh|Android|iPhone|iPad|Linux/i.test(ua)) return true;
 
   return false;
+}
+
+// Проверка на поддельные заголовки современного браузера
+function hasFakeChromeHeaders(req, ua) {
+  // Если UA содержит Chrome/90+, но нет sec-ch-ua заголовков - подозрительно
+  const chromeMatch = ua.match(/Chrome\/(\d+)/);
+  if (chromeMatch && parseInt(chromeMatch[1]) >= 89) {
+    const secChUa = getHeaderValue(req, "sec-ch-ua");
+    const secChUaMobile = getHeaderValue(req, "sec-ch-ua-mobile");
+    const secChUaPlatform = getHeaderValue(req, "sec-ch-ua-platform");
+    
+    // Если все эти заголовки либо отсутствуют, либо равны "-", это подозрительно
+    const hasValidSecChHeaders = 
+      secChUa && secChUa !== "-" && secChUa.trim() !== "" ||
+      secChUaMobile && secChUaMobile !== "-" && secChUaMobile.trim() !== "" ||
+      secChUaPlatform && secChUaPlatform !== "-" && secChUaPlatform.trim() !== "";
+    
+    return !hasValidSecChHeaders;
+  }
+  
+  return false;
+}
+
+// Проверка на сканеры уязвимостей
+function isSuspiciousScanner(req, url, refererHeader) {
+  // 1. Проверка на подозрительные пути
+  for (const pattern of SUSPICIOUS_PATHS) {
+    if (pattern.test(url)) {
+      return { suspicious: true, reason: `suspicious path: ${url}` };
+    }
+  }
+  
+  // 2. Проверка на совпадающие referer и url (признак сканирования)
+  if (refererHeader) {
+    try {
+      const refUrl = new URL(refererHeader);
+      const refPath = refUrl.pathname;
+      
+      // Если referer содержит тот же подозрительный путь, что и запрос
+      for (const pattern of SUSPICIOUS_PATHS) {
+        if (pattern.test(url) && pattern.test(refPath)) {
+          return { suspicious: true, reason: `matching suspicious referer+url: ${refPath} → ${url}` };
+        }
+      }
+    } catch (e) {
+      // Игнорируем невалидные URL
+    }
+  }
+  
+  return { suspicious: false, reason: null };
 }
 
 
@@ -265,29 +340,65 @@ export async function middleware(req) {
     console.warn("loadBotRegexes failed", e?.message || e);
   }
 
-  const isBot = regexes.some(rx => {
+  const isKnownBot = regexes.some(rx => {
     try { return rx.test(ua); } catch (e) { return false; }
   });
 
   const isPreview = /prefetch|preview|prerender/.test(purposeHeader) || secFetchDest === "empty";
   const suspiciousHead = method === "HEAD" && !refererHeader;
-
-  if (isBot || isPreview || suspiciousHead) {
-    const reason = isBot
-      ? "🚨 Known bot detected"
-      : isPreview
-        ? "🚨 Срабатывание Heuristic блокировки (purpose: preview/prefetch)"
-        : "🚨 Срабатывание Heuristic блокировки (HEAD без referer)";
-    notifyTelegram(
-      `${reason}\nUA: ${ua}\nIP: ${ip}\nURL: ${url}\nReferer: ${refererHeader || "—"}\nMethod: ${method}\nPurpose: ${purposeHeader || "—"}`,
-      req
-    );
-    return NextResponse.redirect("https://google.com");
+  
+  // Новые проверки на сканеры
+  const scannerCheck = isSuspiciousScanner(req, url, refererHeader);
+  const hasFakeHeaders = hasFakeChromeHeaders(req, ua);
+  
+  // Определяем, является ли это ботом по любому из критериев
+  let isBot = false;
+  let botReason = "";
+  
+  if (isKnownBot) {
+    isBot = true;
+    botReason = "🚨 Known bot detected";
+  } else if (isPreview) {
+    isBot = true;
+    botReason = "🚨 Срабатывание Heuristic блокировки (purpose: preview/prefetch)";
+  } else if (suspiciousHead) {
+    isBot = true;
+    botReason = "🚨 Срабатывание Heuristic блокировки (HEAD без referer)";
+  } else if (scannerCheck.suspicious) {
+    isBot = true;
+    botReason = `🚨 Vulnerability scanner detected: ${scannerCheck.reason}`;
+  } else if (hasFakeHeaders) {
+    isBot = true;
+    botReason = "🚨 Fake Chrome headers (missing sec-ch-ua)";
+  } else if (!isHumanLike) {
+    isBot = true;
+    botReason = "🚨 Подозрительный запрос (нет признаков браузера)";
   }
-  // пустой юа — сразу считаем ботом
-  if (!isHumanLike) {
+
+  if (isBot) {
+    // Логируем бота перед редиректом
+    try {
+      console.log(JSON.stringify({
+        mainDomain,
+        referer: refererHeader || "—",
+        url,
+        method,
+        ip,
+        ua: ua || "—",
+        acceptLanguage,
+        secChUa,
+        secChUaMobile,
+        secChUaPlatform,
+        isBot: true,
+        botReason: botReason,
+        timestamp: new Date().toISOString()
+      }));
+    } catch (e) {
+      console.log(`BOT DETECTED | ${botReason} | mainDomain: ${mainDomain} | URL: ${url} | IP: ${ip}`);
+    }
+    
     notifyTelegram(
-      `🚨 Подозрительный запрос (нет признаков браузера)\nUA: ${ua || "<пусто>"}\nIP: ${ip}\nURL: ${url}\nReferer: ${refererHeader || "—"}\nMethod: ${method}\nPurpose: ${purposeHeader || "—"}`,
+      `${botReason}\nUA: ${ua || "<пусто>"}\nIP: ${ip}\nURL: ${url}\nReferer: ${refererHeader || "—"}\nMethod: ${method}\nPurpose: ${purposeHeader || "—"}`,
       req
     );
     return NextResponse.redirect("https://google.com");
@@ -305,11 +416,12 @@ export async function middleware(req) {
       secChUa,
       secChUaMobile,
       secChUaPlatform,
+      isBot: false,  // легитимный пользователь
       timestamp: new Date().toISOString()
     }));
   } catch (e) {
     // на случай если console.log не поддерживает сложные объекты в вашей среде
-    console.log(`mainDomain: ${mainDomain} | Referer: ${refererHeader || "—"} | UA: ${ua || "—"} | IP: ${ip}`);
+    console.log(`mainDomain: ${mainDomain} | Referer: ${refererHeader || "—"} | UA: ${ua || "—"} | IP: ${ip} | isBot: false`);
   }
 
   // --- добавляем параметр src=envUrl в ссылку ---
