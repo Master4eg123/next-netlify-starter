@@ -272,11 +272,9 @@ export async function middleware(req) {
   const isPreview = /prefetch|preview|prerender/.test(purposeHeader) || secFetchDest === "empty";
   const suspiciousHead = method === "HEAD" && !refererHeader;
   const isIPv6 = ip.includes(":");
-  const containsPhpOrXml =
-  /\.php\b/i.test(refererHeader || "") ||
-  /\.php\b/i.test(url || "") ||
-  /\.xml\b/i.test(refererHeader || "") ||
-  /\.xml\b/i.test(url || "");
+  const containsPhpOrXml = /\.(php|wp-|xml)([?#].*)?$/i.test(url || "") ||
+                         /\.(php|wp-|xml)([?#].*)?$/i.test(refererHeader || "");
+
 
 if (isBot || isPreview || suspiciousHead || isIPv6 || containsPhpOrXml) {
   const reason = isBot
