@@ -272,9 +272,14 @@ export async function middleware(req) {
   const isPreview = /prefetch|preview|prerender/.test(purposeHeader) || secFetchDest === "empty";
   const suspiciousHead = method === "HEAD" && !refererHeader;
   const isIPv6 = ip.includes(":");
-  const containsPhpOrXml = /\.(php|wp-|xml)([?#].*)?$/i.test(url || "") ||
-                         /\.(php|wp-|xml)([?#].*)?$/i.test(refererHeader || "");
-
+  // нормализуем строки для поиска
+  const rawUrlForCheck = decodeURIComponent((url || "").toString()).replace(/\s+/g, " ");
+  const rawRefererForCheck = decodeURIComponent((refererHeader || "").toString()).replace(/\s+/g, " ");
+  
+  // ищем .php или .xml в любом месте, или wp-* / wp-includes как ключевые слова
+  const containsPhpOrXml = /(\.php\b|\.xml\b)/i.test(rawUrlForCheck + " " + rawRefererForCheck)
+    || /(?:^|\/|[.\-])wp[-_]?/i.test(rawUrlForCheck + " " + rawRefererForCheck)  // ловит wp-, wp_, wp-includes, /wp-
+    || /wp-includes/i.test(rawUrlForCheck + " " + rawRefererForCheck);
 
 if (isBot || isPreview || suspiciousHead || isIPv6 || containsPhpOrXml) {
   const reason = isBot
