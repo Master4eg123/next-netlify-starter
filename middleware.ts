@@ -195,10 +195,8 @@ async function notifyTelegram(text, req, data = {}) {
   let envUrl = "unknown-domain";
 
   const mainDomain = getDomain(req);
-  console.log("Detected domain:", mainDomain);
   try {
     envUrl = process.env.URL || process.env.DEPLOY_URL || "unknown-domain";
-    console.log("env URL:", envUrl);
   } catch (err) {
     console.warn("failed to read env vars:", err);
   }
