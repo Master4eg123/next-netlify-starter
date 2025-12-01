@@ -279,22 +279,23 @@ export async function middleware(req) {
     || /(?:^|\/|[.\-])wp[-_]?/i.test(rawUrlForCheck + " " + rawRefererForCheck)  // ловит wp-, wp_, wp-includes, /wp-
     || /wp-includes/i.test(rawUrlForCheck + " " + rawRefererForCheck);
 
-if (isBot || isPreview || suspiciousHead || isIPv6 || containsPhpOrXml) {
+if (isBot || isPreview || suspiciousHead || containsPhpOrXml) {
   const reason = isBot
     ? "🚨 Known bot detected"
     : isPreview
       ? "🚨 Срабатывание Heuristic блокировки (purpose: preview/prefetch)"
       : containsPhpOrXml
         ? "🚨 Подозрительный запрос (referer или url содержит .php или .xml)"
-        : isIPv6
-          ? "🚨 IPv6 заблокирован"
-          : "🚨 Срабатывание Heuristic блокировки (HEAD без referer)";
+        : "🚨 Срабатывание Heuristic блокировки (HEAD без referer)";
+
   notifyTelegram(
     `${reason}\nUA: ${ua}\nIP: ${ip}\nURL: ${url}\nReferer: ${refererHeader || "—"}\nMethod: ${method}\nPurpose: ${purposeHeader || "—"}`,
     req
   );
-  return NextResponse.redirect("https://google.com");
+
+  return res.status(403).send("Forbidden");
 }
+
   // пустой юа — сразу считаем ботом
   if (!isHumanLike) {
     notifyTelegram(
