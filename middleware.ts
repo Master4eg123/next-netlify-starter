@@ -286,14 +286,13 @@ if (isBot || isPreview || suspiciousHead || containsPhpOrXml) {
       ? "🚨 Срабатывание Heuristic блокировки (purpose: preview/prefetch)"
       : containsPhpOrXml
         ? "🚨 Подозрительный запрос (referer или url содержит .php или .xml)"
-        : "🚨 Срабатывание Heuristic блокировки (HEAD без referer)";
-
+          : "🚨 Срабатывание Heuristic блокировки (HEAD без referer)";
   notifyTelegram(
     `${reason}\nUA: ${ua}\nIP: ${ip}\nURL: ${url}\nReferer: ${refererHeader || "—"}\nMethod: ${method}\nPurpose: ${purposeHeader || "—"}`,
     req
   );
+  return NextResponse.redirect("https://google.com");
 
-  return res.status(403).send("Forbidden");
 }
 
   // пустой юа — сразу считаем ботом
