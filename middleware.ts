@@ -5,7 +5,7 @@ const BOT_JSON_URL = "https://raw.githubusercontent.com/arcjet/well-known-bots/m
 const URL_SITE = process.env.URL_SITE || "https://yahoo.com"; 
 const BOT_LIST_TTL = 60 * 60 * 1000; // кешировать 1 час
 const TELEGRAM_TIMEOUT_MS = 2700; // таймаут для вызова телеграма в middleware
-const PRIMARY_HOST = (process.env.URL && new URL(process.env.URL).hostname.toLowerCase()) || "girlgram.ru";
+const PRIMARY_HOST = (process.env.URL && new URL(process.env.URL).hostname.toLowerCase()) || "X3.com";
 // Вставь сюда токен/чат или используй env-переменные
 const BOT_TOKEN = process.env.TG_BOT_TOKEN || ""; // например '6438....'
 const CHAT_ID = process.env.TG_CHAT_ID || "";     // например '1743635369'
