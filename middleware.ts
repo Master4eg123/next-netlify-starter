@@ -258,6 +258,7 @@ export async function middleware(req: any) {
     }));
   } catch (e) {
     console.log(`mainDomain: ${mainDomain} | Referer: ${refererHeader || "—"} | UA: ${ua || "—"} | IP: ${ip}`);
+    console.log(`URL_SITE: ${process.env.URL_SITE}`);
   }
 
   // Читаем URL_SITE динамически (не встраиваем в бандл)
