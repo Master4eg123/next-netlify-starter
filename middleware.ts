@@ -2,7 +2,7 @@
 // Next.js middleware (Edge runtime) — НЕ читает секреты в глобальной области.
 // Все env читаются внутри handler и Telegram-уведомления отправляются в Netlify Function.
 
-// import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 // const BOT_JSON_URL = "https://raw.githubusercontent.com/arcjet/well-known-bots/main/well-known-bots.json";
 // const BOT_LIST_TTL = 60 * 60 * 1000; // 1 hour
